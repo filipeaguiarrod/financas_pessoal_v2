@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-#from io import BytesIO
+from io import BytesIO
 
 st.set_page_config(page_title='easy-financ-export') # layout="wide",
 
@@ -37,11 +37,16 @@ try:
 
     st.dataframe(nubank_parcial)
 
-    b1 = st.button('Copy')
+    nubank_parcial = to_excel(nubank_parcial)
+
+    st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
+
 
 except:
 
     pass
+
+
 
 
 try:
@@ -62,7 +67,9 @@ try:
 
     st.dataframe(nubank)
 
-    b2 = st.button(' Copy')
+    nubank = to_excel(nubank)
+
+    st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
 
 except:
 
@@ -95,26 +102,10 @@ try:
 
     st.dataframe(itau)
 
-    b3 = st.button('Copy ')
+    itau = to_excel(itau)
 
-except:
+    st.download_button(label="Download",data=itau,file_name='itau.xlsx')
 
-    pass
-
-try:
-
-
-    if b1:
-
-        nubank_parcial.to_clipboard(index=False)
-
-    elif b2:
-
-        nubank.to_clipboard(index=False)
-
-    elif b3:
-
-        itau.to_clipboard(index=False)
 
 except:
 
