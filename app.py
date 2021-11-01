@@ -77,7 +77,7 @@ try:
 
     itau = pd.read_excel(itau_file)
 
-    itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:,0:4] #+1 para ignorar linha lançamento
+    itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0],0:4] #+1 para ignorar linha lançamento
 
     nome_antigo = itau.columns.to_list()
 
