@@ -84,7 +84,13 @@ try:
 
     itau = pd.read_excel(itau_file)
 
-    itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0],0:4] #+1 para ignorar linha lançamento
+    try: #Possivelmente antiga forma do itau gerar xls.
+
+        itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0],0:4] #+1 para ignorar linha lançamento
+
+    except: #Caso seja a nova forma 22/01/2022
+
+        itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:,0:4]
 
     nome_antigo = itau.columns.to_list()
 
