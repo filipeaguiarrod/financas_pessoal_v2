@@ -47,8 +47,6 @@ except:
     pass
 
 
-
-
 try:
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")

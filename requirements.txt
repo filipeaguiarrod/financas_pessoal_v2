@@ -3,9 +3,14 @@
 # D:\Data Scientist\finan-as_pessoal_v2\app.py: 2
 numpy == 1.20.3
 
-# D:\Data Scientist\finan-as_pessoal_v2\Untitled.ipynb: 1
 # D:\Data Scientist\finan-as_pessoal_v2\app.py: 1
 pandas == 1.3.4
 
 # D:\Data Scientist\finan-as_pessoal_v2\app.py: 3
 streamlit == 1.4.0
+
+# D:\Data Scientist\finan-as_pessoal_v2\app.py: 4
+XlsxWriter == 3.0.1
+
+# D:\Data Scientist\finan-as_pessoal_v2\app.py: 5
+xlrd == 2.0.1
