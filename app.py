@@ -114,3 +114,33 @@ try:
 except:
 
     pass
+
+# itaucard:
+
+try:
+
+
+    itau_card_file = st.file_uploader("Jogue aqui o arquivo .xls Itaucard")
+
+    itau_card_file = pd.read_excel(itau_card_file)
+
+    itau_card = itau_card_file.iloc[itau_card_file.loc[itau_card_file['Logotipo Itaú'] == 'data'].index[0]:].drop(columns='Unnamed: 2') #Localiza primeiros registros baseado na coluna "data"
+
+    itau_card = itau_card.dropna().dropna().drop_duplicates().reset_index(drop=True)
+
+    itau_card = itau_card.rename(columns=itau_card.iloc[0])
+
+    itau_card = itau_card.iloc[1:]
+
+    itau_card['valor'] = itau_card['valor'].astype('str').str.replace('.',',')
+
+    st.dataframe(itau_card)
+
+    itau_card = to_excel(itau_card)
+
+    st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
+
+
+except:
+
+    pass
