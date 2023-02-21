@@ -7,7 +7,7 @@ st.set_page_config(page_title='easy-financ-export') # layout="wide",
 
 
 # Function to convert csv to xlsx
-@st.cache
+@st.cache_data
 def to_excel(df):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
@@ -27,21 +27,22 @@ try:
 
     xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-    xp = pd.read_csv(xp_file)
+    xp = pd.read_csv(xp_file,sep=';')
 
     # Editando arquivo csv para usar no google sheets.
 
-    xp['Valor'] = xp['Valor'].astype('str')
-
     xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
-    xp.drop(columns=['Estabelecimento','Parcela'],inplace=True)
-
+    xp.drop(columns=['Parcela','Portador'],inplace=True)
+    
+    st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
+    
     st.dataframe(xp)
 
     xp = to_excel(xp)
 
     st.download_button(label="Download",data=xp,file_name='xp.xlsx')
+
     
 except:
     
@@ -78,6 +79,8 @@ try:
     itau = itau.loc[itau.lançamento.isin(sujeiras)==False]
 
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.',',')
+    
+    st.button(label="Copy",key=1,on_click=itau.to_clipboard(excel=True, sep=None,index=False))
 
     st.dataframe(itau)
 
@@ -85,7 +88,7 @@ try:
 
     st.download_button(label="Download",data=itau,file_name='itau.xlsx')
 
-
+    
 except:
 
     pass
@@ -109,12 +112,13 @@ try:
 
     itau_card['valor'] = itau_card['valor'].astype('str').str.replace('.',',')
 
+    st.button(label="Copy",key=2,on_click=itau_card.to_clipboard(excel=True, sep=None,index=False))    
+
     st.dataframe(itau_card)
 
     itau_card = to_excel(itau_card)
 
     st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
-
 
 except:
 
@@ -137,6 +141,8 @@ try:
     nubank_parcial = pd.DataFrame(three_split,columns=['data','descrição','valor'])
 
     nubank_parcial = nubank_parcial[nubank_parcial.descrição != 'Pagamento recebido']
+    
+    st.button(label="Copy",key=3,on_click=nubank_parcial.to_clipboard(excel=True, sep=None,index=False))    
 
     st.dataframe(nubank_parcial)
 
@@ -144,6 +150,9 @@ try:
 
     st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
 
+except Exception as e:
+    st.error(e)    
+    
 
 except:
 
@@ -165,13 +174,16 @@ try:
     nubank.drop(columns='category',inplace=True)
 
     nubank = nubank[nubank.title != 'Pagamento recebido']
-
+        
+    st.button(label="Copy",key=4,on_click=nubank.to_clipboard(excel=True, sep=None,index=False)) 
+    
     st.dataframe(nubank)
 
     nubank = to_excel(nubank)
 
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
-
+   
+    
 except:
 
     pass
