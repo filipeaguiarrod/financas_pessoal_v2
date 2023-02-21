@@ -18,60 +18,35 @@ def to_excel(df):
 
 
 # Main Script
-
-st.title('Nubank')
-
 # Condição de tranformar texto em df editável.
+# Xp Investimentos
+
+st.title('XP Investimentos')
 
 try:
 
-    string  = st.text_area(f'Texto da fatura Nubank')
+    xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-    string = string.replace('\t','\n') # Padroniza para tornar possível criar uma lista com split('\n')
-
-    three_split = np.array_split(string.split('\n'),len(string.split('\n'))/3) # dado que quero 3 colunas divide tamanho da lista e retorna o que preciso
-
-    nubank_parcial = pd.DataFrame(three_split,columns=['data','descrição','valor'])
-
-    nubank_parcial = nubank_parcial[nubank_parcial.descrição != 'Pagamento recebido']
-
-    st.dataframe(nubank_parcial)
-
-    nubank_parcial = to_excel(nubank_parcial)
-
-    st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
-
-
-except:
-
-    pass
-
-
-try:
-
-    nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
-
-    nubank = pd.read_csv(nu_file)
+    xp = pd.read_csv(xp_file)
 
     # Editando arquivo csv para usar no google sheets.
 
-    nubank.amount = nubank.amount.astype('str')
+    xp['Valor'] = xp['Valor'].astype('str')
 
-    nubank.amount = nubank.amount.str.replace('.',',')
+    xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
-    nubank.drop(columns='category',inplace=True)
+    xp.drop(columns=['Estabelecimento','Parcela'],inplace=True)
 
-    nubank = nubank[nubank.title != 'Pagamento recebido']
+    st.dataframe(xp)
 
-    st.dataframe(nubank)
+    xp = to_excel(xp)
 
-    nubank = to_excel(nubank)
-
-    st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
-
+    st.download_button(label="Download",data=xp,file_name='xp.xlsx')
+    
 except:
-
+    
     pass
+
 
 
 st.title('Itau')
@@ -140,6 +115,62 @@ try:
 
     st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
 
+
+except:
+
+    pass
+
+## Nubank
+
+
+st.title('Nubank')
+
+
+try:
+
+    string  = st.text_area(f'Texto da fatura Nubank')
+
+    string = string.replace('\t','\n') # Padroniza para tornar possível criar uma lista com split('\n')
+
+    three_split = np.array_split(string.split('\n'),len(string.split('\n'))/3) # dado que quero 3 colunas divide tamanho da lista e retorna o que preciso
+
+    nubank_parcial = pd.DataFrame(three_split,columns=['data','descrição','valor'])
+
+    nubank_parcial = nubank_parcial[nubank_parcial.descrição != 'Pagamento recebido']
+
+    st.dataframe(nubank_parcial)
+
+    nubank_parcial = to_excel(nubank_parcial)
+
+    st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
+
+
+except:
+
+    pass
+
+
+try:
+
+    nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
+
+    nubank = pd.read_csv(nu_file)
+
+    # Editando arquivo csv para usar no google sheets.
+
+    nubank.amount = nubank.amount.astype('str')
+
+    nubank.amount = nubank.amount.str.replace('.',',')
+
+    nubank.drop(columns='category',inplace=True)
+
+    nubank = nubank[nubank.title != 'Pagamento recebido']
+
+    st.dataframe(nubank)
+
+    nubank = to_excel(nubank)
+
+    st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
 
 except:
 
