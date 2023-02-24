@@ -43,10 +43,15 @@ try:
 
     st.download_button(label="Download",data=xp,file_name='xp.xlsx')
 
+
+except Exception as e:
+    st.error(e)    
+       
     
 except:
-    
+
     pass
+
 
 
 
@@ -87,11 +92,16 @@ try:
     itau = to_excel(itau)
 
     st.download_button(label="Download",data=itau,file_name='itau.xlsx')
+    
 
+except Exception as e:
+    st.error(e)    
+       
     
 except:
 
     pass
+
 
 # itaucard:
 
@@ -120,9 +130,15 @@ try:
 
     st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
 
+
+except Exception as e:
+    st.error(e)    
+       
+    
 except:
 
     pass
+
 
 ## Nubank
 
@@ -182,7 +198,11 @@ try:
     nubank = to_excel(nubank)
 
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
-   
+    
+
+except Exception as e:
+    st.error(e)    
+       
     
 except:
 
