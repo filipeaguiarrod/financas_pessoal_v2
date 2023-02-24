@@ -35,7 +35,7 @@ try:
 
     xp.drop(columns=['Parcela','Portador'],inplace=True)
     
-    st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
+    #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
     
     st.dataframe(xp)
 
@@ -43,15 +43,10 @@ try:
 
     st.download_button(label="Download",data=xp,file_name='xp.xlsx')
 
-
-except Exception as e:
-    st.error(e)    
-       
     
 except:
-
+    
     pass
-
 
 
 
@@ -85,23 +80,18 @@ try:
 
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.',',')
     
-    st.button(label="Copy",key=1,on_click=itau.to_clipboard(excel=True, sep=None,index=False))
+    #st.button(label="Copy",key=1,on_click=itau.to_clipboard(excel=True, sep=None,index=False))
 
     st.dataframe(itau)
 
     itau = to_excel(itau)
 
     st.download_button(label="Download",data=itau,file_name='itau.xlsx')
-    
 
-except Exception as e:
-    st.error(e)    
-       
     
 except:
 
     pass
-
 
 # itaucard:
 
@@ -122,7 +112,7 @@ try:
 
     itau_card['valor'] = itau_card['valor'].astype('str').str.replace('.',',')
 
-    st.button(label="Copy",key=2,on_click=itau_card.to_clipboard(excel=True, sep=None,index=False))    
+    #st.button(label="Copy",key=2,on_click=itau_card.to_clipboard(excel=True, sep=None,index=False))    
 
     st.dataframe(itau_card)
 
@@ -130,15 +120,9 @@ try:
 
     st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
 
-
-except Exception as e:
-    st.error(e)    
-       
-    
 except:
 
     pass
-
 
 ## Nubank
 
@@ -158,7 +142,7 @@ try:
 
     nubank_parcial = nubank_parcial[nubank_parcial.descrição != 'Pagamento recebido']
     
-    st.button(label="Copy",key=3,on_click=nubank_parcial.to_clipboard(excel=True, sep=None,index=False))    
+    #st.button(label="Copy",key=3,on_click=nubank_parcial.to_clipboard(excel=True, sep=None,index=False))    
 
     st.dataframe(nubank_parcial)
 
@@ -166,9 +150,6 @@ try:
 
     st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
 
-except Exception as e:
-    st.error(e)    
-    
 
 except:
 
@@ -191,18 +172,14 @@ try:
 
     nubank = nubank[nubank.title != 'Pagamento recebido']
         
-    st.button(label="Copy",key=4,on_click=nubank.to_clipboard(excel=True, sep=None,index=False)) 
+    #st.button(label="Copy",key=4,on_click=nubank.to_clipboard(excel=True, sep=None,index=False)) 
     
     st.dataframe(nubank)
 
     nubank = to_excel(nubank)
 
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
-    
-
-except Exception as e:
-    st.error(e)    
-       
+   
     
 except:
 
