@@ -1,3 +1,5 @@
 *.ipynb_checkpoints
 *.csv
 *.xlsx
+/model_cred_labels/eda.ipynb
+docker_image
