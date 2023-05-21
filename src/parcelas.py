@@ -15,7 +15,7 @@ def analyze_parcelas(xp):
 
     #xp['Parcela'] = xp['Parcela'].astype('str')
 
-    xp[['realizado','total']] = xp['Parcela'].str.decode('utf-8').split(' de ',n=2,expand=True)
+    xp[['realizado','total']] = xp['Parcela'].str.split(' de ',n=2,expand=True)
 
     xp_parcelas = xp.loc[xp['realizado']!='-'].copy()
     xp_parcelas[['realizado','total']] = xp_parcelas[['realizado','total']].astype('int64')
@@ -28,7 +28,6 @@ def analyze_parcelas(xp):
     # Corrige por exemplo 2/2 agora é minha ultima parcela mas ainda não pague! falta 1  
 
     xp_parcelas['faltam'] = xp_parcelas['faltam'] + 1  
-    xp_parcelas.set_index('Estabelecimento')[['faltam','Valor']].sort_values('total_faltante',ascending=False)
 
     # Cria coluna com nomes de acordo com máximo tempo de parcela
 
@@ -71,13 +70,13 @@ def analyze_parcelas(xp):
     xp_parcelas_ow = xp_parcelas[['Estabelecimento'] + col_dates]
 
     total = xp_parcelas_ow.sum(axis=0).to_list()
-    total[0] = 'Total'
+    total[0] = 'TOTAL'
 
     xp_parcelas_ow.columns.to_list()
 
     xp_parcelas_ow = xp_parcelas_ow.append(pd.Series(total, index=xp_parcelas_ow.columns), ignore_index=True)
 
-    xp_parcelas_ow['Total'] = xp_parcelas_ow[col_dates].sum(axis=1)
+    xp_parcelas_ow['TOTAL'] = xp_parcelas_ow[col_dates].sum(axis=1)
     xp_parcelas_ow.fillna('-',inplace=True)
 
     return xp_parcelas_ow

@@ -35,37 +35,38 @@ def to_excel(df):
 
 st.title('XP Investimentos')
 
-'''try:'''
+try:
 
-xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
+    xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
+    xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
 
-# Editando arquivo csv para usar no google sheets.
+    # Editando arquivo csv para usar no google sheets.
 
-st.text(xp.info())
+    xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
-xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
+    xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
 
-xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
+    #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
 
-#st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
-
-st.dataframe(xp)
-
-xp = to_excel(xp_copy)
-
-st.download_button(label="Download",data=xp,file_name='xp.xlsx')
-
-option = st.checkbox("*Quer detalhar suas parcelas ?*")
-
-if option == True:
-
-    xp_report = parcelas.analyze_parcelas(xp)
     st.dataframe(xp)
 
+    xp_copy = to_excel(xp_copy)
 
-'''    
+    st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
+
+    option = st.checkbox("*Quer detalhar suas parcelas ?*")
+
+    if option == True:
+
+        try:
+            xp_report = parcelas.analyze_parcelas(xp)
+            st.dataframe(xp_report.round(1))          
+        
+        except:
+            pass
+
+
 except:
     
     pass
@@ -206,4 +207,3 @@ try:
 except:
 
     pass
-'''
