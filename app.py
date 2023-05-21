@@ -3,6 +3,18 @@ import numpy as np
 import streamlit as st
 from io import BytesIO
 
+import sys
+import os
+
+# Get the current directory of main.py
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Append the root folder to sys.path
+root_folder = os.path.join(current_dir, 'src', '..')
+sys.path.append(root_folder)
+
+from src import parcelas
+
 st.set_page_config(page_title='easy-financ-export') # layout="wide",
 
 
@@ -23,27 +35,37 @@ def to_excel(df):
 
 st.title('XP Investimentos')
 
-try:
+'''try:'''
 
-    xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
+xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-    xp = pd.read_csv(xp_file,sep=';')
+xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
 
-    # Editando arquivo csv para usar no google sheets.
+# Editando arquivo csv para usar no google sheets.
 
-    xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
+st.text(xp.info())
 
-    xp.drop(columns=['Parcela','Portador'],inplace=True)
-    
-    #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
-    
+xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
+
+xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
+
+#st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
+
+st.dataframe(xp)
+
+xp = to_excel(xp_copy)
+
+st.download_button(label="Download",data=xp,file_name='xp.xlsx')
+
+option = st.checkbox("*Quer detalhar suas parcelas ?*")
+
+if option == True:
+
+    xp_report = parcelas.analyze_parcelas(xp)
     st.dataframe(xp)
 
-    xp = to_excel(xp)
 
-    st.download_button(label="Download",data=xp,file_name='xp.xlsx')
-
-    
+'''    
 except:
     
     pass
@@ -184,3 +206,4 @@ try:
 except:
 
     pass
+'''
