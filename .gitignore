@@ -3,3 +3,4 @@
 *.xlsx
 /model_cred_labels/eda.ipynb
 docker_image
+tests
