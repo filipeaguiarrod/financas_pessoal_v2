@@ -45,7 +45,7 @@ try:
 
     xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
-    xp = xp.loc[xp['Lançamento']!='Pagamentos Validos Normais']
+    xp = xp.loc[xp['Estabelecimento']!='Pagamentos Validos Normais']
 
     xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
 
