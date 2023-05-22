@@ -45,6 +45,8 @@ try:
 
     xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
+    xp = xp.loc[xp['Lançamento']!='Pagamentos Validos Normais']
+
     xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
 
     #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
