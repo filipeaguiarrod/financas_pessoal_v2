@@ -49,7 +49,7 @@ try:
 
     #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
 
-    st.dataframe(xp)
+    st.dataframe(xp_copy)
 
     xp_copy = to_excel(xp_copy)
 
