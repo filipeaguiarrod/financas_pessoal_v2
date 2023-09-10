@@ -9,17 +9,15 @@ from sqlalchemy.types import Text, Date, Float
 
 class PostgresUploader:
    def __init__(self):
-      self.json_settings_str = os.environ.get("DB_SETTINGS")
-      self.db_settings = self.load_db_settings()
+      self.db_user = os.environ.get('DB_USER')
+      self.db_password = os.environ.get('DB_PASSWORD')
+      self.db_host = os.environ.get('DB_HOST')
+      self.db_port = os.environ.get('DB_PORT')
+      self.db_name = os.environ.get('DB_NAME')
+      self.db_schema = os.environ.get('DB_SCHEMA')
       self.engine = self.connect_postgres()
       self.connection = self.engine.connect()
 
-   
-   def load_db_settings(self):
-       
-      db_settings = json.loads(self.json_settings_str)
-
-      return db_settings
 
    def query_to_df(self,query):
 
@@ -40,7 +38,7 @@ class PostgresUploader:
       '''
 
       # Create the connection string to postgres
-      conn_string = f"postgresql://{self.db_settings['db_user']}:{self.db_settings['db_password']}@{self.db_settings['db_host']}:{self.db_settings['db_port']}/{self.db_settings['db_name']}"
+      conn_string = f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
       # Create SQLAlchemy engine
       engine = create_engine(conn_string)
 
@@ -62,7 +60,7 @@ class PostgresUploader:
 
       df.to_sql(table_name, 
                   self.engine, 
-                  schema = self.db_settings['db_schema'], 
+                  schema = self.db_schema, 
                   if_exists=if_exists,
                   dtype=dtype, 
                   index=False)

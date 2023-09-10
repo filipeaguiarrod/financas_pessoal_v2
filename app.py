@@ -37,47 +37,46 @@ def to_excel(df):
 
 st.title('XP Investimentos')
 
-#try:
+try:
 
-xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
+    xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
+    xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
 
-# Editando arquivo csv para usar no google sheets.
+    # Editando arquivo csv para usar no google sheets.
 
-xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
+    xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
 
-xp = xp.loc[xp['Estabelecimento']!='Pagamentos Validos Normais']
+    xp = xp.loc[xp['Estabelecimento']!='Pagamentos Validos Normais']
 
-xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
+    xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
 
-#st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
+    #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
 
-xp_copy_class = classifier.primary_classifier(df=xp_copy) # Primeira camada de classificacao
+    xp_copy_class = classifier.primary_classifier(df=xp_copy) # Primeira camada de classificacao
 
-xp_copy_class_sec = classifier.secondary_classifier(df_categorias=xp_copy_class)
+    xp_copy_class_sec = classifier.secondary_classifier(df_categorias=xp_copy_class)
 
-st.dataframe(xp_copy_class_sec)
+    st.dataframe(xp_copy_class_sec)
 
-xp_copy = to_excel(xp_copy_class_sec)
+    xp_copy = to_excel(xp_copy_class_sec)
 
-st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
+    st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
 
-option = st.checkbox("*Quer detalhar suas parcelas ?*")
+    option = st.checkbox("*Quer detalhar suas parcelas ?*")
 
-if option == True:
+    if option == True:
 
-    try:
-        xp_report = parcelas.analyze_parcelas(xp)
-        st.dataframe(xp_report.round(1))   
-    
-    except:
-        pass
+        try:
+            xp_report = parcelas.analyze_parcelas(xp)
+            st.dataframe(xp_report.round(1))   
+        
+        except:
+            pass
 
-'''except:
+except:
     
     pass
-'''
 
 
 st.title('Itau')
