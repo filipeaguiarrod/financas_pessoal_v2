@@ -1,5 +1,13 @@
-numpy
-pandas
+google_api_python_client==2.88.0
+google_auth_oauthlib==1.0.0
+joblib==1.2.0
+numpy==1.23.5
+pandas==1.5.2
+protobuf==3.20.3
+python_dateutil==2.8.2
+SQLAlchemy==2.0.20
+psycopg2-binary
+scikit-learn
 streamlit
 XlsxWriter
 xlrd

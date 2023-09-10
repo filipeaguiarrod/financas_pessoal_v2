@@ -6,6 +6,7 @@ from io import BytesIO
 import sys
 import os
 
+
 # Get the current directory of main.py
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -14,6 +15,7 @@ root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
 
 from src import parcelas
+from src import classifier
 
 st.set_page_config(page_title='easy-financ-export') # layout="wide",
 
@@ -51,9 +53,13 @@ try:
 
     #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
 
-    st.dataframe(xp_copy)
+    xp_copy_class = classifier.primary_classifier(df=xp_copy) # Primeira camada de classificacao
 
-    xp_copy = to_excel(xp_copy)
+    xp_copy_class_sec = classifier.secondary_classifier(df_categorias=xp_copy_class)
+
+    st.dataframe(xp_copy_class_sec)
+
+    xp_copy = to_excel(xp_copy_class_sec)
 
     st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
 
@@ -63,11 +69,10 @@ try:
 
         try:
             xp_report = parcelas.analyze_parcelas(xp)
-            st.dataframe(xp_report.round(1))          
+            st.dataframe(xp_report.round(1))   
         
         except:
             pass
-
 
 except:
     

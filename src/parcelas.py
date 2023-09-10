@@ -8,7 +8,6 @@ def analyze_parcelas(xp):
 
     """
     Receives a xp file that will contain first analyzes 
-
     """
 
     # Make a parse into Parcela column
