@@ -6,4 +6,7 @@ docker_image
 Dockerfile
 test.ipynb
 Dockerfile
-Dockerfile
+.env.local
+improvements
+src/__pycache__/postgres.cpython-310.pyc
+.gitignore

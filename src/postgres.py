@@ -2,10 +2,17 @@
 import json
 import pandas as pd
 import os
+from dotenv import load_dotenv
 ## SQL 
 from sqlalchemy import create_engine, text
 from sqlalchemy.types import Text, Date, Float
 
+# Procura arquivo local de env se não espera externo
+try:
+   dotenv_path = os.path.abspath(".env.local")
+   load_dotenv(dotenv_path=dotenv_path)
+except:
+   pass
 
 class PostgresUploader:
    def __init__(self):
@@ -18,6 +25,14 @@ class PostgresUploader:
       self.engine = self.connect_postgres()
       self.connection = self.engine.connect()
 
+      
+      # Print for debugging purposes
+      print("DB_USER:", self.db_user)
+      print("DB_PASSWORD:", self.db_password)
+      print("DB_HOST:", self.db_host)
+      print("DB_PORT:", self.db_port)
+      print("DB_NAME:", self.db_name)
+      print("DB_SCHEMA:", self.db_schema)
 
    def query_to_df(self,query):
 
