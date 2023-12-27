@@ -14,7 +14,7 @@ def connect_query():
 
     return connection
 
-def primary_classifier(df): 
+def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'): 
 
     '''
     Recebe um dataframe e retorna uma classificação
@@ -24,10 +24,13 @@ def primary_classifier(df):
 
     connection = connect_query()
 
-    # recebe df
-    df['Valor'] = df['Valor'].str.replace('.', '').str.replace(',', '.').astype(float)
-    valores = '(' + ', '.join(map(str, df['Valor'].tolist())) + ')'
-    estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df['Estabelecimento'].tolist()]) + ')'
+    if df[numeric_col].dtype != 'float64':
+
+        df[numeric_col] = df[numeric_col].str.replace('.', '').str.replace(',', '.').astype(float)
+
+
+    valores = '(' + ', '.join(map(str, df[numeric_col].tolist())) + ')'
+    estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df[cat_col].tolist()]) + ')'
 
     # Define the query using text() construct with parameter binding
     query = text(f'''SELECT DISTINCT * 
@@ -43,12 +46,16 @@ def primary_classifier(df):
     labels = pd.DataFrame(result.fetchall(), columns=result.keys())
     labels = labels.drop_duplicates(subset=['lancamento','valor'])
 
-    df_categorias = df.merge(labels,how='left',left_on=['Estabelecimento','Valor'],right_on=['lancamento','valor'])
-    df_categorias = df_categorias[['categoria','Data','Estabelecimento','Valor']]
-    
+    df_categorias = df.merge(labels,how='left',left_on=[cat_col,numeric_col],right_on=['lancamento','valor'])
+
+    try:
+        df_categorias = df_categorias[['categoria','Data','Estabelecimento',numeric_col]]
+    except:
+        df_categorias[['categoria','Estabelecimento',numeric_col]]
+        
     return df_categorias
 
-def secondary_classifier(df_categorias):
+def secondary_classifier(df_categorias,numeric_col='Valor'):
     """
     Here is a model that trains over credit card transactions (history)
     """
@@ -74,8 +81,24 @@ def secondary_classifier(df_categorias):
     df_class_sec.loc[condition, 'categoria'] = predictions_upper
 
 
-    df_class_sec['Valor'] = df_class_sec['Valor'].astype('string')
-    df_class_sec['Valor'] = df_class_sec['Valor'].str.replace('.',',')
+    df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('string')
+    df_class_sec[numeric_col] = df_class_sec[numeric_col].str.replace('.',',')
     
 
     return df_class_sec
+
+def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento', parcelas=False):
+
+    df = primary_classifier(df = df,numeric_col=numeric_col,cat_col=cat_col)
+    df1 = secondary_classifier(df,numeric_col=numeric_col)
+
+    if parcelas:
+
+        df1 = df1.iloc[:,:-3]
+        df1.loc[df1[cat_col]=='Total','categoria'] = 'Total'
+        list_cols = df1.columns.to_list()
+        list_cols.remove('categoria')
+        list_cols.insert(0,'categoria')
+        df1 = df1[list_cols]
+
+    return df1

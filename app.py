@@ -17,7 +17,7 @@ sys.path.append(root_folder)
 from src import parcelas
 from src import classifier
 
-st.set_page_config(page_title='easy-financ-export') # layout="wide",
+st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
 
 # Function to convert csv to xlsx
@@ -53,29 +53,41 @@ try:
 
     #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
 
-    xp_copy_class = classifier.primary_classifier(df=xp_copy) # Primeira camada de classificacao
+    option1 = st.checkbox("*Classificar transações ?*",value=True)
 
-    xp_copy_class_sec = classifier.secondary_classifier(df_categorias=xp_copy_class)
+    if option1: #Classificar transações
 
-    st.dataframe(xp_copy_class_sec)
+        xp_copy = classifier.classify_complete(xp_copy)
 
-    xp_copy = to_excel(xp_copy_class_sec)
+    st.dataframe(xp_copy)
+
+    xp_copy = to_excel(xp_copy)
 
     st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
 
-    option = st.checkbox("*Quer detalhar suas parcelas ?*")
+    option2 = st.checkbox("*Quer detalhar suas parcelas ?*")
 
-    if option == True:
+    if option2:
 
         try:
             xp_report = parcelas.analyze_parcelas(xp)
-            st.dataframe(xp_report.round(1))   
-        
-        except:
+            xp_report.reset_index(inplace=True)
+            xp_report = classifier.classify_complete(xp_report,
+                                                     numeric_col=xp_report.columns[1],
+                                                     cat_col=xp_report.columns[0],
+                                                     parcelas=True)
+            st.data_editor(xp_report.round(1),
+                           disabled=True)
+
+            fig = parcelas.plot_parcelas(xp_report)
+            st.plotly_chart(fig)   
+
+        except Exception as e:
+            print(f"An exception occurred: {e}")
             pass
 
-except:
-    
+except Exception as e:
+    print(f"An exception occurred: {e}")
     pass
 
 
