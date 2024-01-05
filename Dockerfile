@@ -1,4 +1,4 @@
-FROM python:3-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ COPY app.py /app/
 COPY src /app/src/
 COPY model /app/model/
 
-RUN pip3 install -r requirements.txt
+RUN pip3 install --upgrade pip && pip3 install -r requirements.txt
 
 EXPOSE 8501
 
