@@ -24,9 +24,12 @@ def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'):
 
     connection = connect_query()
 
-    if df[numeric_col].dtype != 'float64':
+    print(df)
 
-        df[numeric_col] = df[numeric_col].str.replace('.', '').str.replace(',', '.').astype(float)
+    if df[numeric_col].dtype != 'float64':
+       df[numeric_col] = df[numeric_col].str.replace(',', '.')
+       df[numeric_col] = pd.to_numeric(df[numeric_col], errors='coerce',downcast='float')
+       df[numeric_col].fillna(0,inplace=True)
 
 
     valores = '(' + ', '.join(map(str, df[numeric_col].tolist())) + ')'
@@ -82,7 +85,9 @@ def secondary_classifier(df_categorias,numeric_col='Valor'):
 
 
     df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('string')
-    df_class_sec[numeric_col] = df_class_sec[numeric_col].str.replace('.',',')
+    df_class_sec[numeric_col] = df_class_sec[numeric_col].str.replace(',', '.')
+    df_class_sec[numeric_col] = pd.to_numeric(df_class_sec[numeric_col], errors='coerce',downcast='float')
+    df_class_sec[numeric_col].fillna(0,inplace=True)
     
 
     return df_class_sec

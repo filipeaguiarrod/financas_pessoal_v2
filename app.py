@@ -73,11 +73,11 @@ try:
             xp_report = parcelas.analyze_parcelas(xp)
             xp_report.reset_index(inplace=True)
             xp_report = classifier.classify_complete(xp_report,
-                                                     numeric_col=xp_report.columns[1],
-                                                     cat_col=xp_report.columns[0],
-                                                     parcelas=True)
+                                                        numeric_col=xp_report.columns[1],
+                                                        cat_col=xp_report.columns[0],
+                                                        parcelas=True)
             st.data_editor(xp_report.round(1),
-                           disabled=True)
+                            disabled=True)
 
             fig = parcelas.plot_parcelas(xp_report)
             st.plotly_chart(fig)   

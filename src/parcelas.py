@@ -18,12 +18,13 @@ def analyze_parcelas(xp):
 
     xp[['realizado','total']] = xp['Parcela'].str.split(' de ',n=2,expand=True)
 
-    xp_parcelas = xp.loc[xp['realizado']!='-'].copy()
+    xp_parcelas = xp.loc[(xp['realizado']!='-')&(xp['realizado']!='')].copy()
     xp_parcelas[['realizado','total']] = xp_parcelas[['realizado','total']].astype('int64')
     xp_parcelas['faltam'] = xp_parcelas['total'] - xp_parcelas['realizado']
 
     xp_parcelas['Valor'] = xp_parcelas['Valor'].str.strip()
     xp_parcelas['Valor'] = xp_parcelas['Valor'].str.replace(',','.')
+    print(xp_parcelas['Valor'])
     xp_parcelas['Valor'] = xp_parcelas['Valor'].astype('float64')
 
     # Corrige por exemplo 2/2 agora é minha ultima parcela mas ainda não pague! falta 1  
@@ -73,23 +74,9 @@ def analyze_parcelas(xp):
     xp_parcelas_ow[col_dates] = xp_parcelas_ow[col_dates].astype('float64').round(2)
     xp_parcelas_ow.set_index('Estabelecimento',inplace=True)
 
-    #xp_parcelas_ow = xp_parcelas_ow.fillna(0.00)
-
     # Create a new row 'Total' and column 'Total'
     xp_parcelas_ow['Total'] = xp_parcelas_ow.sum(axis=1)
     xp_parcelas_ow.loc['Total'] = xp_parcelas_ow.sum()
-
-    '''total = xp_parcelas_ow.sum(axis=0).to_list()
-    total[0] = 'TOTAL'
-
-    xp_parcelas_ow.columns.to_list()
-
-    xp_parcelas_ow = xp_parcelas_ow.append(pd.Series(total, index=xp_parcelas_ow.columns), ignore_index=True)
-
-    xp_parcelas_ow['TOTAL'] = xp_parcelas_ow[col_dates].sum(axis=1).round(2)
-    xp_parcelas_ow.fillna('-',inplace=True)'''
-
-    #xp_parcelas_ow[[col_dates]] = xp_parcelas_ow[col_dates].astype('float64')
 
     return  xp_parcelas_ow
 
