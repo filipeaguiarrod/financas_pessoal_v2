@@ -1,6 +1,8 @@
 services:
   app:
-    image: financas_pessoal_v2
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8501:8501"
     environment:

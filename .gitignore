@@ -11,3 +11,4 @@ improvements
 .gitignore
 src/__pycache__/classifier.cpython-310.pyc
 src/__pycache__/parcelas.cpython-310.pyc
+.env
