@@ -1,7 +1,7 @@
 *.ipynb_checkpoints
 *.csv
 *.xlsx
-tests/
+development/
 docker_image
 Dockerfile
 test.ipynb

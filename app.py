@@ -59,11 +59,16 @@ try:
 
         xp_copy = classifier.classify_complete(xp_copy)
 
-    st.dataframe(xp_copy)
+    # Decimal em ","" para fazer download
+    xp_copy_str = xp_copy.copy()
+    xp_copy_str['Valor'] = xp_copy_str['Valor'].astype('str')
+    xp_copy_str['Valor'] = xp_copy_str['Valor'].str.replace('.',',')
 
-    xp_copy = to_excel(xp_copy)
+    st.dataframe(xp_copy_str)
 
-    st.download_button(label="Download",data=xp_copy,file_name='xp.xlsx')
+    xp_copy_str = to_excel(xp_copy_str)
+
+    st.download_button(label="Download",data=xp_copy_str,file_name='xp.xlsx')
 
     option2 = st.checkbox("*Quer detalhar suas parcelas ?*")
 
