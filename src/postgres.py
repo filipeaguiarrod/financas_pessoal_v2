@@ -27,12 +27,18 @@ class PostgresUploader:
 
       
       # Print for debugging purposes
-      print("DB_USER:", self.db_user)
-      print("DB_PASSWORD:", self.db_password)
-      print("DB_HOST:", self.db_host)
-      print("DB_PORT:", self.db_port)
-      print("DB_NAME:", self.db_name)
-      print("DB_SCHEMA:", self.db_schema)
+      #clear
+      # print("DB_USER:", self.db_user)
+      #clear
+      # print("DB_PASSWORD:", self.db_password)
+      #clear
+      # print("DB_HOST:", self.db_host)
+      #clear
+      # print("DB_PORT:", self.db_port)
+      #clear
+      # print("DB_NAME:", self.db_name)
+      #clear
+      # print("DB_SCHEMA:", self.db_schema)
 
    def query_to_df(self,query):
 

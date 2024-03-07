@@ -17,30 +17,34 @@ def connect_query():
 def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'): 
 
     '''
-    Recebe um dataframe e retorna uma classificação
-    simples, baseado em histórico da base de transações
-    é super confiável na classificação.
+    Classify using database history of transactions
+    Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
+    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
     '''
 
     connection = connect_query()
-
-    print(df)
 
     if df[numeric_col].dtype != 'float64':
        df[numeric_col] = df[numeric_col].str.replace(',', '.')
        df[numeric_col] = pd.to_numeric(df[numeric_col], errors='coerce',downcast='float')
        df[numeric_col].fillna(0,inplace=True)
 
+    df[numeric_col] = df[numeric_col].apply(lambda x: round(x,2)) # Assegura arredondamento de 2 igual a base
 
-    valores = '(' + ', '.join(map(str, df[numeric_col].tolist())) + ')'
+    #print(df)
+
+    valores = '(' + ', '.join(map(str, df[numeric_col].round(2).tolist())) + ')'
     estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df[cat_col].tolist()]) + ')'
+
+    #print(valores,estabelecimentos)
 
     # Define the query using text() construct with parameter binding
     query = text(f'''SELECT DISTINCT * 
                  FROM transactions.credit_card_transactions 
                  WHERE TRUE 
                  AND valor IN {valores} 
-                 AND lancamento IN {estabelecimentos}''')
+                 AND lancamento IN {estabelecimentos}
+                 ''')
     
     # Perform the query
     result = connection.execute(query)
@@ -59,8 +63,11 @@ def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'):
     return df_categorias
 
 def secondary_classifier(df_categorias,numeric_col='Valor'):
+    
     """
-    Here is a model that trains over credit card transactions (history)
+    Classify using model trained with historical labels
+    Input: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
+    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
     """
 
     df_class_sec = df_categorias.copy()
@@ -88,22 +95,20 @@ def secondary_classifier(df_categorias,numeric_col='Valor'):
     df_class_sec[numeric_col] = df_class_sec[numeric_col].str.replace(',', '.')
     df_class_sec[numeric_col] = pd.to_numeric(df_class_sec[numeric_col], errors='coerce',downcast='float')
     df_class_sec[numeric_col].fillna(0,inplace=True)
+    df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('float64')
     
 
     return df_class_sec
 
-def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento', parcelas=False):
+def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento'):
 
+    '''
+    Classify using database history and model returning both at the end.
+    Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
+    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
+    '''
+    
     df = primary_classifier(df = df,numeric_col=numeric_col,cat_col=cat_col)
     df1 = secondary_classifier(df,numeric_col=numeric_col)
-
-    if parcelas:
-
-        df1 = df1.iloc[:,:-3]
-        df1.loc[df1[cat_col]=='Total','categoria'] = 'Total'
-        list_cols = df1.columns.to_list()
-        list_cols.remove('categoria')
-        list_cols.insert(0,'categoria')
-        df1 = df1[list_cols]
 
     return df1

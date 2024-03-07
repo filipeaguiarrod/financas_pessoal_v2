@@ -2,20 +2,16 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 from io import BytesIO
-
 import sys
 import os
-
-
 # Get the current directory of main.py
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-
 from src import parcelas
 from src import classifier
+from src import banks
 
 st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
@@ -32,8 +28,6 @@ def to_excel(df):
 
 
 # Main Script
-# Condição de tranformar texto em df editável.
-# Xp Investimentos
 
 st.title('XP Investimentos')
 
@@ -41,51 +35,33 @@ try:
 
     xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
-    xp = pd.read_csv(xp_file,sep=';',encoding='utf-8')
-
-    # Editando arquivo csv para usar no google sheets.
-
-    xp['Valor'] = xp['Valor'].str.replace('R\$', '', regex=True)
-
-    xp = xp.loc[xp['Estabelecimento']!='Pagamentos Validos Normais']
-
-    xp_copy = xp.drop(columns=['Parcela','Portador']).copy()
-
-    #st.button(label="Copy",key=0,on_click=xp.to_clipboard(excel=True, sep=None,index=False))
+    xp_raw,xp = banks.transform_xp(xp_file=xp_file)
+    xp_class = banks.classify_xp(xp)
+    print(xp_class)
 
     option1 = st.checkbox("*Classificar transações ?*",value=True)
 
-    if option1: #Classificar transações
+    if option1: # Classificar transações.
+        st.dataframe(banks.display_xp(xp_class))
+    else:
+        st.dataframe(banks.display_xp(xp))
 
-        xp_copy = classifier.classify_complete(xp_copy)
-
-    # Decimal em ","" para fazer download
-    xp_copy_str = xp_copy.copy()
-    xp_copy_str['Valor'] = xp_copy_str['Valor'].astype('str')
-    xp_copy_str['Valor'] = xp_copy_str['Valor'].str.replace('.',',')
-
-    st.dataframe(xp_copy_str)
-
-    xp_copy_str = to_excel(xp_copy_str)
-
-    st.download_button(label="Download",data=xp_copy_str,file_name='xp.xlsx')
+    xp_xlsx = to_excel(xp) # Converte para excel csv->xlsx
+    st.download_button(label="Download",data=xp_xlsx,file_name='xp.xlsx')
 
     option2 = st.checkbox("*Quer detalhar suas parcelas ?*")
 
     if option2:
 
         try:
-            xp_report = parcelas.analyze_parcelas(xp)
-            xp_report.reset_index(inplace=True)
-            xp_report = classifier.classify_complete(xp_report,
-                                                        numeric_col=xp_report.columns[1],
-                                                        cat_col=xp_report.columns[0],
-                                                        parcelas=True)
+
+            xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
+
             st.data_editor(xp_report.round(1),
                             disabled=True)
 
-            fig = parcelas.plot_parcelas(xp_report)
             st.plotly_chart(fig)   
+            st.plotly_chart(fig2)   
 
         except Exception as e:
             print(f"An exception occurred: {e}")
