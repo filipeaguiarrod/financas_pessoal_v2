@@ -76,20 +76,25 @@ def create_cols(xp_parcelas):
     # Create a new row 'Total' and column 'Total'
     xp_report['Total'] = xp_report.sum(axis=1)
     xp_report.sort_values(['categoria','Total'],inplace=True)
-    #xp_report.loc['Total'] = xp_report.sum()
+    xp_report.loc[999] = xp_report.sum(axis=0).iloc[2:]
+    xp_report.loc[999, ['Estabelecimento','categoria']] = ['-', 'Total']
+
+    #print(xp_report)
+    
 
     #xp_report.reset_index(inplace=True)
 
     return  xp_report
 
 def plot_cohort(xp_report):
-
     """ 
-    Rebece xp_report(df) -> ['categoria', 'Estabelecimento',mes1,mes2,..., 'Total'], mes1,mes2...,Total float64
+    Receives xp_report(df) -> ['categoria', 'Estabelecimento', mes1, mes2, ..., 'Total'], mes1, mes2, ..., Total float64
     """
-
     xp_report['categoria'] = xp_report['categoria'].str.lower()
     xp_report = xp_report.groupby('categoria').sum()
+
+    # Move 'Total' row to the top
+    xp_report = xp_report.reindex(['total'] + sorted(xp_report.index.difference(['total'])))
 
     # Sort values by the sum of each row and display from most filled to least filled
     sorted_data = xp_report.replace(0, np.nan).count(axis=1).sort_values(ascending=False).index
@@ -99,7 +104,7 @@ def plot_cohort(xp_report):
     custom_cmap = ['white', 'darkgray']
 
     # Increase the size of the plot
-    fig = px.imshow(xp_report_sorted.replace(0,np.nan),
+    fig = px.imshow(xp_report_sorted.replace(0, np.nan),
                     labels=dict(color=""),
                     color_continuous_scale=custom_cmap,
                     height=600, width=800,
@@ -112,6 +117,7 @@ def plot_cohort(xp_report):
     fig.update_yaxes(showgrid=False)
 
     return fig
+
 
 def plot_parcelas(xp_report):
     """ 
