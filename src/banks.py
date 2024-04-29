@@ -45,3 +45,22 @@ def display_xp(xp_class):
         pass
     
     return xp_class_disp
+
+def transform_partial_nu(nubank_html:str)->pd.DataFrame:
+
+    # Recebe uma string com html e transforma em dataframe,
+    # copiado direto do site da nubank
+
+    df = pd.read_html(nubank_html,encoding='utf-8')
+
+    df2 = df[0].dropna(how='all')
+    df2[0] = df2[0].fillna(method='ffill')
+    df2 = df2[[0,3,4]]
+    df2 = df2.rename(columns={
+        0:'Data',
+        3:'Estabelecimento',
+        4:'Valor'
+        })
+    df2['Valor'] = df2['Valor'].str.replace('R\$', '', regex=True)
+     
+    return df2

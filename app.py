@@ -156,21 +156,13 @@ try:
 
     string  = st.text_area(f'Texto da fatura Nubank')
 
-    string = string.replace('\t','\n') # Padroniza para tornar possível criar uma lista com split('\n')
+    nu_parcial = banks.transform_partial_nu(string)
 
-    three_split = np.array_split(string.split('\n'),len(string.split('\n'))/3) # dado que quero 3 colunas divide tamanho da lista e retorna o que preciso
+    st.dataframe(nu_parcial)
 
-    nubank_parcial = pd.DataFrame(three_split,columns=['data','descrição','valor'])
+    df2 = to_excel(nu_parcial)
 
-    nubank_parcial = nubank_parcial[nubank_parcial.descrição != 'Pagamento recebido']
-    
-    #st.button(label="Copy",key=3,on_click=nubank_parcial.to_clipboard(excel=True, sep=None,index=False))    
-
-    st.dataframe(nubank_parcial)
-
-    nubank_parcial = to_excel(nubank_parcial)
-
-    st.download_button(label="Download",data=nubank_parcial,file_name='nubank_parcial.xlsx')
+    st.download_button(label="Download",data=nu_parcial,file_name='df2.xlsx')
 
 
 except:
