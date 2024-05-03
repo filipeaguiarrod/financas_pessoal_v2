@@ -165,9 +165,8 @@ try:
     st.download_button(label="Download",data=nu_parcial,file_name='df2.xlsx')
 
 
-except:
-
-    pass
+except Exception as e:
+    st.error(f"An error occurred: {e}")
 
 
 try:
