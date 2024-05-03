@@ -111,9 +111,9 @@ try:
     st.download_button(label="Download",data=itau,file_name='itau.xlsx')
 
     
-except:
+except Exception as e:
+    print(f"An error occurred: {e}")
 
-    pass
 
 # itaucard:
 
@@ -142,9 +142,9 @@ try:
 
     st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
 
-except:
+except Exception as e:
+    print(f"An error occurred: {e}")
 
-    pass
 
 ## Nubank
 
@@ -166,7 +166,7 @@ try:
 
 
 except Exception as e:
-    st.error(f"An error occurred: {e}")
+    print(f"An error occurred: {e}")
 
 
 try:
@@ -194,6 +194,5 @@ try:
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
    
     
-except:
-
-    pass
+except Exception as e:
+    print(f"An error occurred: {e}")
