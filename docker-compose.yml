@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: financas_control_v2
     ports:
       - "8501:8501"
     environment:
