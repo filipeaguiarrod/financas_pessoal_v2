@@ -150,6 +150,7 @@ except Exception as e:
 
 
 st.title('Nubank')
+st.text('Cartão teste')
 
 
 try:
