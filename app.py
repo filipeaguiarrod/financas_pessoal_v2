@@ -4,14 +4,13 @@ import streamlit as st
 from io import BytesIO
 import sys
 import os
+
 # Get the current directory of main.py
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-from src import parcelas
-from src import classifier
-from src import banks
+from src import parcelas,classifier, banks
 
 st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
@@ -29,9 +28,9 @@ def to_excel(df):
 
 # Main Script
 
-st.title('XP Investimentos')
-
 try:
+
+    st.title('XP Investimentos')
 
     xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
 
@@ -39,7 +38,7 @@ try:
     xp_class = banks.classify_xp(xp)
     print(xp_class)
 
-    option1 = st.checkbox("*Classificar transações ?*",value=True)
+    option1 = st.checkbox("*Classificar transações ?*",value=True,key='xp_classifier')
 
     if option1: # Classificar transações.
         st.dataframe(banks.display_xp(xp_class))
@@ -49,10 +48,9 @@ try:
     xp_xlsx = to_excel(xp) # Converte para excel csv->xlsx
     st.download_button(label="Download",data=xp_xlsx,file_name='xp.xlsx')
 
-    option2 = st.checkbox("*Quer detalhar suas parcelas ?*")
+    option2 = st.checkbox("*Quer detalhar suas parcelas ?*",key='xp_parcelas')
 
     if option2:
-
         try:
 
             xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
@@ -66,10 +64,9 @@ try:
         except Exception as e:
             print(f"An exception occurred: {e}")
             pass
-
-except Exception as e:
-    print(f"An exception occurred: {e}")
+except:
     pass
+
 
 
 st.title('Itau')
@@ -154,14 +151,19 @@ st.title('Nubank')
 
 try:
 
-    string  = st.text_area(f'Texto da fatura Nubank')
+    string  = st.text_area('Copie o html do Nubank')
 
     nu_parcial = banks.transform_partial_nu(string)
 
+    option3 = st.checkbox("*Classificar transações ?*",value=True,key='nu_parcial_classifier')
+    
+    if option3:
+        nu_parcial = classifier.classify_complete(nu_parcial,numeric_col='Valor',cat_col='Estabelecimento')
+
+    st.metric("Valor Parcial",round(nu_parcial['Valor'].sum(),2))
+
     st.dataframe(nu_parcial)
-
     df2 = to_excel(nu_parcial)
-
     st.download_button(label="Download",data=nu_parcial,file_name='df2.xlsx')
 
 
@@ -176,21 +178,13 @@ try:
     nubank = pd.read_csv(nu_file)
 
     # Editando arquivo csv para usar no google sheets.
-
     nubank.amount = nubank.amount.astype('str')
-
     nubank.amount = nubank.amount.str.replace('.',',')
-
     nubank.drop(columns='category',inplace=True)
-
     nubank = nubank[nubank.title != 'Pagamento recebido']
-        
-    #st.button(label="Copy",key=4,on_click=nubank.to_clipboard(excel=True, sep=None,index=False)) 
-    
+            
     st.dataframe(nubank)
-
     nubank = to_excel(nubank)
-
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
    
     

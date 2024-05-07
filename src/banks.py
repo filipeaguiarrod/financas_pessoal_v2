@@ -62,5 +62,8 @@ def transform_partial_nu(nubank_html:str)->pd.DataFrame:
         4:'Valor'
         })
     df2['Valor'] = df2['Valor'].str.replace('R\$', '', regex=True)
+
+    #Eliminando pagamento anterior
+    df2 = df2.loc[df2['Estabelecimento']!='Pagamento recebido']
      
     return df2

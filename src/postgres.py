@@ -1,5 +1,4 @@
 # Bibliotecas
-import json
 import pandas as pd
 import os
 from dotenv import load_dotenv
@@ -9,7 +8,7 @@ from sqlalchemy.types import Text, Date, Float
 
 # Procura arquivo local de env se não espera externo
 try:
-   dotenv_path = os.path.abspath(".env.local")
+   dotenv_path = os.path.abspath(".env")
    load_dotenv(dotenv_path=dotenv_path)
 except:
    pass
