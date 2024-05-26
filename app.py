@@ -162,6 +162,8 @@ try:
 
     st.metric("Valor Parcial",round(nu_parcial['Valor'].sum(),2))
 
+    nu_parcial['Valor'] = nu_parcial['Valor'].round(2).astype('str')
+    nu_parcial['Valor'] = nu_parcial['Valor'].str.replace('.',',')
     st.dataframe(nu_parcial)
     df2 = to_excel(nu_parcial)
     st.download_button(label="Download",data=nu_parcial,file_name='df2.xlsx')
@@ -175,14 +177,15 @@ try:
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
 
-    nubank = pd.read_csv(nu_file)
+    nubank = banks.transform_nubank(nu_file)
 
-    # Editando arquivo csv para usar no google sheets.
-    nubank.amount = nubank.amount.astype('str')
-    nubank.amount = nubank.amount.str.replace('.',',')
-    nubank.drop(columns='category',inplace=True)
-    nubank = nubank[nubank.title != 'Pagamento recebido']
-            
+    option4 = st.checkbox("*Classificar transações ?*",value=True,key='nu_classifier')
+
+    if option4:
+        nubank = classifier.classify_complete(nubank,numeric_col='Valor',cat_col='Estabelecimento')
+
+    nubank['Valor'] = nubank['Valor'].round(2).astype('str')
+    nubank['Valor'] = nubank['Valor'].str.replace('.',',')
     st.dataframe(nubank)
     nubank = to_excel(nubank)
     st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
