@@ -93,7 +93,10 @@ try:
 
     itau.rename(columns=dictionary,inplace=True)
 
-    sujeiras = ['SALDO ANTERIOR','REND PAGO APLIC AUT MAIS','SDO CTA/APL AUTOMATICAS','SALDO DO DIA','SALDO TOTAL DISPONÃVEL DIA']
+    sujeiras = ['SALDO ANTERIOR','REND PAGO APLIC AUT MAIS',
+                'SDO CTA/APL AUTOMATICAS','SALDO DO DIA',
+                'SALDO TOTAL DISPONÃVEL DIA',
+                'REND PAGO APLIC AUT APR']
 
     itau = itau.loc[itau.lançamento.isin(sujeiras)==False]
 
