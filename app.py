@@ -158,7 +158,7 @@ try:
 
     nu_parcial = banks.transform_partial_nu(string)
 
-    option3 = st.checkbox("*Classificar transações ?*",value=True,key='nu_parcial_classifier')
+    option3 = st.checkbox("*Classificar transações ?*",key='nu_parcial_classifier')
     
     if option3:
         nu_parcial = classifier.classify_complete(nu_parcial,numeric_col='Valor',cat_col='Estabelecimento')
@@ -182,10 +182,12 @@ try:
 
     nubank = banks.transform_nubank(nu_file)
 
-    option4 = st.checkbox("*Classificar transações ?*",value=True,key='nu_classifier')
+    option4 = st.checkbox("*Classificar transações ?*",key='nu_classifier')
 
     if option4:
         nubank = classifier.classify_complete(nubank,numeric_col='Valor',cat_col='Estabelecimento')
+
+    st.metric("Valor Parcial",round(nubank['Valor'].sum(),2))
 
     nubank['Valor'] = nubank['Valor'].round(2).astype('str')
     nubank['Valor'] = nubank['Valor'].str.replace('.',',')
