@@ -80,7 +80,7 @@ def transform_nubank(nu_file)->pd.DataFrame:
 
     # Editando arquivo csv para usar no google sheets.
     nubank.amount = nubank.amount.astype('str')
-    nubank.drop(columns='category',inplace=True)
+    #nubank.drop(columns='category',inplace=True) -- csv novo não utiliza
     nubank = nubank[nubank.title != 'Pagamento recebido']
 
     nubank = nubank.rename(columns={
