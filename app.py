@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 import streamlit as st
 from io import BytesIO
 import sys
@@ -148,33 +147,7 @@ except Exception as e:
 
 ## Nubank
 
-
 st.title('Nubank')
-
-
-try:
-
-    string  = st.text_area('Copie o html do Nubank')
-
-    nu_parcial = banks.transform_partial_nu(string)
-
-    option3 = st.checkbox("*Classificar transações ?*",key='nu_parcial_classifier')
-    
-    if option3:
-        nu_parcial = classifier.classify_complete(nu_parcial,numeric_col='Valor',cat_col='Estabelecimento')
-
-    st.metric("Valor Parcial",round(nu_parcial['Valor'].sum(),2))
-
-    nu_parcial['Valor'] = nu_parcial['Valor'].round(2).astype('str')
-    nu_parcial['Valor'] = nu_parcial['Valor'].str.replace('.',',')
-    st.dataframe(nu_parcial)
-    df2 = to_excel(nu_parcial)
-    st.download_button(label="Download",data=nu_parcial,file_name='df2.xlsx')
-
-
-except Exception as e:
-    print(f"An error occurred: {e}")
-
 
 try:
 
@@ -186,10 +159,10 @@ try:
 
     if option4:
         nubank = classifier.classify_complete(nubank,numeric_col='Valor',cat_col='Estabelecimento')
-
-    st.metric("Valor Parcial",round(nubank['Valor'].sum(),2))
-
-    nubank['Valor'] = nubank['Valor'].round(2).astype('str')
+    
+    st.metric("Valor Parcial",round(nubank['Valor'].astype('float64').sum(),2))
+    
+    nubank['Valor'] = nubank['Valor'].astype('str')
     nubank['Valor'] = nubank['Valor'].str.replace('.',',')
     st.dataframe(nubank)
     nubank = to_excel(nubank)
