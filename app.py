@@ -9,7 +9,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-from src import parcelas,classifier, banks
+from src import parcelas,classifier, banks, llm_agent
 
 st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
@@ -153,21 +153,27 @@ try:
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
 
-    nubank = banks.transform_nubank(nu_file)
+    nubank_raw = banks.transform_nubank(nu_file)
 
     option4 = st.checkbox("*Classificar transações ?*",key='nu_classifier')
 
     if option4:
-        nubank = classifier.classify_complete(nubank,numeric_col='Valor',cat_col='Estabelecimento')
+        nubank = classifier.classify_complete(nubank_raw,numeric_col='Valor',cat_col='Estabelecimento')
     
     st.metric("Valor Parcial",round(nubank['Valor'].astype('float64').sum(),2))
     
+    nubank['Valor'] = nubank['Valor'].round(2)
     nubank['Valor'] = nubank['Valor'].astype('str')
     nubank['Valor'] = nubank['Valor'].str.replace('.',',')
+
     st.dataframe(nubank)
-    nubank = to_excel(nubank)
-    st.download_button(label="Download",data=nubank,file_name='nubank.xlsx')
-   
+
+    option5 = st.checkbox("Analisar parcelas asd ?",key='nu_parcelas')
+
+    if option5:
+
+        nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
+        st.write(nu_parcelas)
     
 except Exception as e:
     print(f"An error occurred: {e}")
