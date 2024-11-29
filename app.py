@@ -14,16 +14,6 @@ from src import parcelas,classifier, banks, llm_agent
 st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
 
-# Function to convert csv to xlsx
-@st.cache_data
-def to_excel(df):
-    output = BytesIO()
-    writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, sheet_name='Sheet1',index=False)
-    writer.save()
-    processed_data = output.getvalue()
-    return processed_data
-
 
 # Main Script
 
@@ -43,9 +33,6 @@ try:
         st.dataframe(banks.display_xp(xp_class))
     else:
         st.dataframe(banks.display_xp(xp))
-
-    xp_xlsx = to_excel(xp) # Converte para excel csv->xlsx
-    st.download_button(label="Download",data=xp_xlsx,file_name='xp.xlsx')
 
     option2 = st.checkbox("*Quer detalhar suas parcelas ?*",key='xp_parcelas')
 
@@ -100,15 +87,8 @@ try:
     itau = itau.loc[itau.lançamento.isin(sujeiras)==False]
 
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.',',')
-    
-    #st.button(label="Copy",key=1,on_click=itau.to_clipboard(excel=True, sep=None,index=False))
 
     st.dataframe(itau)
-
-    itau = to_excel(itau)
-
-    st.download_button(label="Download",data=itau,file_name='itau.xlsx')
-
     
 except Exception as e:
     print(f"An error occurred: {e}")
@@ -133,13 +113,7 @@ try:
 
     itau_card['valor'] = itau_card['valor'].astype('str').str.replace('.',',')
 
-    #st.button(label="Copy",key=2,on_click=itau_card.to_clipboard(excel=True, sep=None,index=False))    
-
     st.dataframe(itau_card)
-
-    itau_card = to_excel(itau_card)
-
-    st.download_button(label="Download",data=itau_card,file_name='itaucard.xlsx')
 
 except Exception as e:
     print(f"An error occurred: {e}")
@@ -155,6 +129,8 @@ try:
 
     nubank_raw = banks.transform_nubank(nu_file)
 
+    nubank = nubank_raw.copy()
+
     option4 = st.checkbox("*Classificar transações ?*",key='nu_classifier')
 
     if option4:
@@ -168,7 +144,7 @@ try:
 
     st.dataframe(nubank)
 
-    option5 = st.checkbox("Analisar parcelas asd ?",key='nu_parcelas')
+    option5 = st.checkbox("**AI** - Analisar parcelas ?",key='nu_parcelas')
 
     if option5:
 
