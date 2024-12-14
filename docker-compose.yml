@@ -1,10 +1,11 @@
 version: "3.8"
 
 services:
-  app:
+  financas_app:
     build:
       context: .
       dockerfile: Dockerfile
+    image: financas_control_v2
     container_name: financas_control_v2
     ports:
       - "8501:8501"
