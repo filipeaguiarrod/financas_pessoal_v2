@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import google.generativeai as genai
+import openai
 
 try:
    dotenv_path = os.path.abspath(".env")
@@ -57,9 +59,7 @@ class LLMAgent:
     
 
     def call_openai(self) -> json:
-        
-        import openai
-        
+              
         response = openai.ChatCompletion.create(
                                                 model="gpt-4o-mini", 
                                                 response_format={"type": "json_object"},
@@ -73,8 +73,6 @@ class LLMAgent:
         return json_df
     
     def call_genai(self) -> json:
-
-        import google.generativeai as genai
 
         model = genai.GenerativeModel("gemini-1.5-flash")
         generation_config=genai.GenerationConfig(response_mime_type="application/json",
