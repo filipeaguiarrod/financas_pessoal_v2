@@ -23,6 +23,8 @@ class LLMAgent:
             temperature (float, optional): The temperature of the model. Defaults to 0.0.
             top_p (float, optional): The top_p of the model. Defaults to 0.1.
         """
+        self.OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+        self.GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
         self.temperature = temperature
         self.top_p = top_p
         self.csv_as_text = df.to_csv(index=False)
