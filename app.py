@@ -148,8 +148,12 @@ try:
 
     if option5:
 
-        nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-        st.write(nu_parcelas)
-    
+        try:
+            nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
+            st.write(nu_parcelas)
+        
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
 except Exception as e:
     print(f"An error occurred: {e}")
