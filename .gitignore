@@ -3,6 +3,7 @@
 *.xlsx
 *.pyc
 development/
+financas_env/
 docker_image
 Dockerfile
 test.ipynb

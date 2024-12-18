@@ -137,9 +137,7 @@ try:
     
     st.metric("Valor Parcial",round(nubank['Valor'].astype('float64').sum(),2))
     
-    nubank['Valor'] = nubank['Valor'].round(2)
-    nubank['Valor'] = nubank['Valor'].astype('str')
-    nubank['Valor'] = nubank['Valor'].str.replace('.',',')
+    nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.',',')
 
     st.dataframe(nubank)
 
