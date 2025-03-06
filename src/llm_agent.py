@@ -1,11 +1,15 @@
 import pandas as pd
 import json
+import logging
 import os 
 from dotenv import load_dotenv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import google.generativeai as genai
 import openai
+
+# Configuração básica do logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 try:
    dotenv_path = os.path.abspath(".env")
@@ -44,11 +48,11 @@ class LLMAgent:
 
             Retorne a seguinte lista de jsons, cada json para uma transação parcelada identificada:
 
-            compras_parceladas = [{
-                "titulo": "",
-                "calculo_parcelas_restantes": "",
-                "valores_parcelas": ""
-            }]
+            compras_parceladas:[{
+                                "titulo": "",
+                                "calculo_parcelas_restantes": "",
+                                "valores_parcelas": ""
+                                }]
 
             - titulo: a descrição da transação.
             - calculo_parcelas_restantes: Estruture porém não fala o cálculo final das parcelas restantes, que deve ser
@@ -58,37 +62,59 @@ class LLMAgent:
         """ + f'\nArquivo CSV: {self.csv_as_text}'
     
 
-    def call_openai(self) -> json:
-              
-        response = openai.ChatCompletion.create(
-                                                model="gpt-4o-mini", 
-                                                response_format={"type": "json_object"},
-                                                messages=[{"role": "user", "content": self.prompt}],
-                                                temperature=self.temperature, 
-                                                top_p=self.top_p, 
-                                                )
+    def call_openai(self,model="gpt-4o-mini") -> json:
+
+        try:
+            logging.info(f"Iniciando chamada para o modelo da OpenAI {model}...")
+            
+            response = openai.ChatCompletion.create(
+                model="gpt-4o-mini", 
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": self.prompt}],
+                temperature=self.temperature, 
+                top_p=self.top_p, 
+            )
+            
+            logging.info("Resposta recebida do modelo.")
+            logging.info(response.text)
+            
+            json_df = json.loads(response.choices[0].message.content)
+            
+            return json_df
         
-        json_df = json.loads(response.choices[0].message.content)
-
-        return json_df
+        except json.JSONDecodeError as e:
+            logging.error(f"Erro ao decodificar JSON: {e}")
+        except Exception as e:
+            logging.error(f"Erro inesperado: {e}")
+        
+        return {}  # Retorna um dicionário vazio em caso de erro
     
-    def call_genai(self) -> json:
+    
+    def call_genai(self,model="gemini-2.0-flash") -> json:
 
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        generation_config=genai.GenerationConfig(response_mime_type="application/json",
-                                                 temperature=self.temperature, 
-                                                 top_p=self.top_p, 
-                                                 )
+        try:
+            logging.info(f"Iniciando chamada para o modelo Gemini {model}...")
+            
+            model = genai.GenerativeModel(model)
+            generation_config = genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=self.temperature,
+                top_p=self.top_p,
+            )
+            
+            response = model.generate_content(self.prompt, generation_config=generation_config)
+            logging.info("Resposta recebida do modelo.")
+            logging.info(response.text)
 
-
-        response = model.generate_content(self.prompt,
-                                          generation_config=generation_config)
-                                        
-
-        json_df = json.loads(response.text)
-
-
-        return json_df
+            json_df = json.loads(response.text)
+            return json_df
+        
+        except json.JSONDecodeError as e:
+            logging.error(f"Erro ao decodificar JSON: {e}")
+        except Exception as e:
+            logging.error(f"Erro inesperado: {e}")
+        
+        return {}  # Retorna um dicionário vazio em caso de erro
     
     def llm_parcelas_analyser(self,llm_agent:str)-> pd.DataFrame:
 
