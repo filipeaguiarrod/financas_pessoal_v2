@@ -2,6 +2,11 @@ import pandas as pd
 import streamlit as st
 import sys
 import os
+import logging
+
+
+# Configuração básica do logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Get the current directory of main.py
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,8 +17,6 @@ from src import parcelas,classifier, banks, llm_agent
 
 st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
 
-
-
 # Main Script
 
 try:
@@ -21,14 +24,23 @@ try:
     st.title('XP Investimentos')
 
     xp_file = st.file_uploader("Jogue aqui o arquivo .csv XP Investimentos")
+    logging.info(f"Iniciando tratamento dos dados da XP Investimentos...")
 
     xp_raw,xp = banks.transform_xp(xp_file=xp_file)
-    xp_class = banks.classify_xp(xp)
-    print(xp_class)
+    logging.info(f"xp_raw: {xp_raw.shape}, xp: {xp.shape} processados com sucesso.")
+    logging.info(xp.head(5))
 
-    option1 = st.checkbox("*Classificar transações ?*",value=True,key='xp_classifier')
+    option1 = st.checkbox("*Classificar transações ?*",value=False,key='xp_classifier')
 
-    if option1: # Classificar transações.
+    # Valor total da fatura
+    total_xp = xp['Valor'].str.replace(',','.').astype('float64').sum()
+    st.metric("Valor Parcial",round(total_xp,2))
+
+    if option1:
+        xp_class = banks.classify_xp(xp)
+        logging.info(f"Transações classificadas com sucesso.")
+        logging.info(xp_class.head(5))
+
         st.dataframe(banks.display_xp(xp_class))
     else:
         st.dataframe(banks.display_xp(xp))
@@ -40,8 +52,7 @@ try:
 
             xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
 
-            st.data_editor(xp_report.round(1),
-                            disabled=True)
+            st.data_editor(xp_report.round(1),disabled=True)
 
             st.plotly_chart(fig)   
             st.plotly_chart(fig2)   
@@ -49,10 +60,8 @@ try:
         except Exception as e:
             print(f"An exception occurred: {e}")
             pass
-except:
-    pass
-
-
+except Exception as e:
+    logging.info(f"An error occurred: {e}")
 
 st.title('Itau')
 
@@ -130,7 +139,7 @@ try:
 
     nubank = nubank_raw.copy()
 
-    option4 = st.checkbox("*Classificar transações ?*",key='nu_classifier')
+    option4 = st.checkbox("*Classificar transações ?*",value=False,key='nu_classifier')
 
     if option4:
         nubank = classifier.classify_complete(nubank_raw,numeric_col='Valor',cat_col='Estabelecimento')
@@ -148,9 +157,9 @@ try:
         try:
             nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
             st.write(nu_parcelas)
-        
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.info(f"An error occurred: {e}")
+
 
 except Exception as e:
-    print(f"An error occurred: {e}")
+    logging.info(f"An error occurred: {e}")

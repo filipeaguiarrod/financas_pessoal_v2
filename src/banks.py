@@ -1,6 +1,8 @@
 import pandas as pd
+import logging
 from . import classifier
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def transform_xp(xp_file):
 
