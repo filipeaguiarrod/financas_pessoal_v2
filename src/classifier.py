@@ -5,9 +5,18 @@ import os
 import joblib
 from . import postgres as ps
 import requests
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+# Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+try:
+   dotenv_path = os.path.abspath(".env")
+   load_dotenv(dotenv_path=dotenv_path)
+except:
+   pass
+
 
 def connect_query():
 
@@ -96,7 +105,8 @@ def secondary_classifier(df_categorias,model_location='external',numeric_col='Va
     
     elif model_location == 'external':
 
-        url = "http://localhost:5757/greet/"
+        url = os.environ.get("CLASSIFICATION_MODEL_API")
+        logging.info(f"URL do classificador: {url}")
 
         headers = {
             "accept": "application/json",
