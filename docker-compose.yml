@@ -18,4 +18,5 @@ services:
       DB_SCHEMA: ${DB_SCHEMA}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      CLASSIFICATION_MODEL_API: ${CLASSIFICATION_MODEL_API}
     restart: unless-stopped
