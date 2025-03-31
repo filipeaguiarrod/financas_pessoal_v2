@@ -3,6 +3,7 @@ import streamlit as st
 import sys
 import os
 import logging
+from src.sidebars import Navbar
 
 
 # Configuração básica do logger
@@ -15,9 +16,11 @@ root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
 from src import parcelas,classifier, banks, llm_agent
 
-st.set_page_config(page_title='easy-financ-export',layout='centered') # layout="wide",
+# Configuração do Streamlit
+st.set_page_config(page_title='easy-financ-export',layout='centered')
 
-# Main Script
+Navbar()
+
 
 try:
 

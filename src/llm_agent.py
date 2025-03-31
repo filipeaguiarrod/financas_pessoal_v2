@@ -86,8 +86,6 @@ class LLMAgent:
             logging.error(f"Erro ao decodificar JSON: {e}")
         except Exception as e:
             logging.error(f"Erro inesperado: {e}")
-        
-        return {}  # Retorna um dicionário vazio em caso de erro
     
     
     def call_genai(self,model="gemini-2.0-flash") -> json:
