@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-import google.generativeai as genai
+from google import genai
 import openai
 
 # Configuração básica do logger
@@ -16,7 +16,6 @@ try:
    load_dotenv(dotenv_path=dotenv_path)
 except:
    pass
-
 
 class LLMAgent:
 

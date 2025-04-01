@@ -13,4 +13,4 @@ improvements
 .gitignore
 .env
 .env.old
-.pyc
+*.pyc

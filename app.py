@@ -21,7 +21,6 @@ st.set_page_config(page_title='easy-financ-export',layout='centered')
 
 Navbar()
 
-
 try:
 
     st.title('XP Investimentos')

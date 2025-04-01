@@ -7,3 +7,4 @@ def Navbar():
         st.page_link("app.py", label="Bancos", icon='🏦')
         st.page_link("pages/ecommerce.py", label="Ecommerce", icon='🛒')
         # Main Script
+    return
