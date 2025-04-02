@@ -3,12 +3,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt /app/
-
-COPY .streamlit /.streamlit/
 COPY app.py /app/
 COPY src /app/src/
 COPY model /app/model/
 COPY pages /app/pages/
+COPY .streamlit/ ./.streamlit
 
 RUN pip3 install --upgrade pip && pip3 install -r requirements.txt
 
