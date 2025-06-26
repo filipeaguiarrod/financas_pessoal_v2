@@ -87,7 +87,7 @@ class LLMAgent:
             logging.error(f"Erro inesperado: {e}")
     
     
-    def call_genai(self,model="gemini-2.0-flash") -> json:
+    def call_genai(self,model="gemini-2.5-flash") -> json:
 
         try:
             logging.info(f"Iniciando chamada para o modelo Gemini {model}...")
