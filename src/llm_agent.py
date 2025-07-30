@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from google import genai
+from google.genai import types
 import openai
 
 # Configuração básica do logger
@@ -61,7 +62,10 @@ class LLMAgent:
         """ + f'\nArquivo CSV: {self.csv_as_text}'
     
 
-    def call_openai(self,model="gpt-4o-mini") -> json:
+    def call_openai(self,model="o4-mini-2025-04-16") -> json:
+
+        
+        logging.info(f"Usando modelo {model} OpenAI para análise de parcelas.")
 
         try:
             logging.info(f"Iniciando chamada para o modelo da OpenAI {model}...")
@@ -87,30 +91,34 @@ class LLMAgent:
             logging.error(f"Erro inesperado: {e}")
     
     
-    def call_genai(self,model="gemini-2.5-flash") -> json:
+    def call_genai(self, model="gemini-2.5-flash") -> json:
+
+        logging.info(f"Usando modelo {model} GenAI para análise de parcelas.")
 
         try:
             logging.info(f"Iniciando chamada para o modelo Gemini {model}...")
-            
-            model = genai.GenerativeModel(model)
-            generation_config = genai.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=self.temperature,
-                top_p=self.top_p,
-            )
-            
-            response = model.generate_content(self.prompt, generation_config=generation_config)
+
+            client = genai.Client(api_key=self.GOOGLE_API_KEY)
+            generation_config = genai.types.GenerateContentConfig(
+                                                                    response_mime_type="application/json",
+                                                                    temperature=self.temperature,
+                                                                    top_p=self.top_p,
+                                                                 )
+
+            response = client.models.generate_content(model=model, 
+                                                      contents=self.prompt, 
+                                                      config=generation_config)
             logging.info("Resposta recebida do modelo.")
             logging.info(response.text)
 
             json_df = json.loads(response.text)
             return json_df
-        
+
         except json.JSONDecodeError as e:
             logging.error(f"Erro ao decodificar JSON: {e}")
         except Exception as e:
             logging.error(f"Erro inesperado: {e}")
-        
+
         return {}  # Retorna um dicionário vazio em caso de erro
     
     def llm_parcelas_analyser(self,llm_agent:str)-> pd.DataFrame:

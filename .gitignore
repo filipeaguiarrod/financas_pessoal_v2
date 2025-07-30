@@ -13,4 +13,8 @@ improvements
 .gitignore
 .env
 .env.old
-*.pyc
+src/__pycache__/__init__.cpython-310.pyc
+src/__pycache__/banks.cpython-310.pyc
+src/__pycache__/classifier.cpython-310.pyc
+src/__pycache__/parcelas.cpython-310.pyc
+src/__pycache__/postgres.cpython-310.pyc

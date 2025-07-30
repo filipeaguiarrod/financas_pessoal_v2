@@ -156,6 +156,8 @@ try:
 
     if option5:
 
+        logging.info("Iniciando análise de parcelas com LLM...")
+        
         try:
             nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
             st.write(nu_parcelas)
