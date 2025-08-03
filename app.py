@@ -14,7 +14,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-from src import parcelas,classifier, banks, llm_agent
+from src import parcelas,classifier, banks #, llm_agent
 
 # Configuração do Streamlit
 st.set_page_config(page_title='easy-financ-export',layout='centered')
@@ -113,6 +113,8 @@ try:
 
     itau_card_file = pd.read_excel(itau_card_file)
 
+    logging.info(f"Arquivo Itaucard carregado com sucesso. Shape: {itau_card_file.shape}")
+
     itau_card = itau_card_file.iloc[itau_card_file.loc[itau_card_file['Logotipo Itaú'] == 'data'].index[0]:].drop(columns='Unnamed: 2') #Localiza primeiros registros baseado na coluna "data"
 
     itau_card = itau_card.dropna().dropna().drop_duplicates().reset_index(drop=True)
@@ -158,11 +160,11 @@ try:
 
         logging.info("Iniciando análise de parcelas com LLM...")
         
-        try:
-            nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-            st.write(nu_parcelas)
-        except Exception as e:
-            logging.info(f"An error occurred: {e}")
+        #try:
+            #nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
+            #st.write(nu_parcelas)
+        #except Exception as e:
+            #logging.info(f"An error occurred: {e}")
 
 
 except Exception as e:
