@@ -160,11 +160,11 @@ try:
 
         logging.info("Iniciando análise de parcelas com LLM...")
         
-        #try:
-            #nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-            #st.write(nu_parcelas)
-        #except Exception as e:
-            #logging.info(f"An error occurred: {e}")
+        try:
+            nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
+            st.write(nu_parcelas)
+        except Exception as e:
+            logging.info(f"An error occurred: {e}")
 
 
 except Exception as e:
