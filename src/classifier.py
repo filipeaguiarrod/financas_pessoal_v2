@@ -26,8 +26,7 @@ def connect_query():
 
     return connection
 
-def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'): 
-
+def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento'):
     '''
     Classify using database history of transactions
     Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
@@ -36,44 +35,52 @@ def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'):
 
     connection = connect_query()
 
+    # Preparando o DataFram para matching.
     if df[numeric_col].dtype != 'float64':
-       df[numeric_col] = df[numeric_col].str.replace(',', '.')
-       df[numeric_col] = pd.to_numeric(df[numeric_col], errors='coerce',downcast='float')
-       df[numeric_col].fillna(0,inplace=True)
+        df[numeric_col] = df[numeric_col].str.replace(',', '.')
+        df[numeric_col] = pd.to_numeric(df[numeric_col], errors='coerce', downcast='float')
+        df[numeric_col].fillna(0, inplace=True)
 
-    df[numeric_col] = df[numeric_col].apply(lambda x: round(x,2)) # Assegura arredondamento de 2 igual a base
+    # Coluna que vai retornar para salvar na planilha
+    df[numeric_col] = df[numeric_col].apply(lambda x: round(x,2)) 
+    # Cria a coluna arredondada para a união
+    df['valor_round'] = df[numeric_col].round(0)
 
-    #print(df)
-
-    valores = '(' + ', '.join(map(str, df[numeric_col].round(2).tolist())) + ')'
+    valores = '(' + ', '.join(map(str, df['valor_round'].tolist())) + ')'
     estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df[cat_col].tolist()]) + ')'
 
-    #print(valores,estabelecimentos)
+    #display(df)
 
-    # Define the query using text() construct with parameter binding
-    query = text(f'''SELECT DISTINCT * 
-                 FROM financials.credit_card 
-                 WHERE TRUE 
-                 AND valor IN {valores} 
-                 AND lancamento IN {estabelecimentos}
-                 ''')
+    # Define a query usando text()
+    # Distinct "garante" ou favorece que não haja duplicatas de labels
+    query = text(f'''SELECT DISTINCT
+                        categoria, 
+                        lancamento, 
+                        ROUND(valor, 0) AS valor_round
+                    FROM financials.credit_card 
+                    WHERE TRUE 
+                    AND ROUND(valor, 0) IN {valores} 
+                    AND lancamento IN {estabelecimentos}
+                ''')
     
-    # Perform the query
+    # Executa a query
     result = connection.execute(query)
 
-    # Convert the result to a pandas DataFrame
+    # Converte o resultado para um DataFrame
     labels = pd.DataFrame(result.fetchall(), columns=result.keys())
-    labels = labels.drop_duplicates(subset=['lancamento','valor'])
+    labels = labels.drop_duplicates(subset=['lancamento', 'valor_round'])
 
-    df_categorias = df.merge(labels,how='left',left_on=[cat_col,numeric_col],right_on=['lancamento','valor'])
+    # Realiza a união (merge)
+    df_categorias = df.merge(labels, how='left', left_on=[cat_col, 'valor_round'], right_on=['lancamento', 'valor_round'])
 
     try:
-        df_categorias = df_categorias[['categoria','Data','Estabelecimento',numeric_col]]
-    except:
-        df_categorias[['categoria','Estabelecimento',numeric_col]]
-        
-    return df_categorias
+        # Reorganiza e seleciona as colunas desejadas
+        df_categorias = df_categorias[['categoria', 'Data', 'Estabelecimento', numeric_col]]
+    except KeyError:
+        # Trata o caso onde a coluna 'Data' não existe
+        df_categorias = df_categorias[['categoria', 'Estabelecimento', numeric_col]]
 
+    return df_categorias
 
 def secondary_classifier(df_categorias,model_location='external',numeric_col='Valor'):
     
