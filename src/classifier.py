@@ -52,7 +52,7 @@ def primary_classifier(df,numeric_col='Valor',cat_col='Estabelecimento'):
 
     # Define the query using text() construct with parameter binding
     query = text(f'''SELECT DISTINCT * 
-                 FROM transactions.credit_card_transactions 
+                 FROM financials.credit_card 
                  WHERE TRUE 
                  AND valor IN {valores} 
                  AND lancamento IN {estabelecimentos}
