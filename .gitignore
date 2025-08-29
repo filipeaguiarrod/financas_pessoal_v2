@@ -2,6 +2,7 @@
 *.csv
 *.xlsx
 *.pyc
+__pycache__/
 development/
 financas_env/
 docker_image

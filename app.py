@@ -50,18 +50,21 @@ try:
     option2 = st.checkbox("*Quer detalhar suas parcelas ?*",key='xp_parcelas')
 
     if option2:
+
         try:
-
-            xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
-
-            st.data_editor(xp_report.round(1),disabled=True)
-
-            st.plotly_chart(fig)   
-            st.plotly_chart(fig2)   
-
+            xp_parcelas = llm_agent.LLMAgent(xp_raw).llm_parcelas_analyser(llm_agent='genai')
+            st.write(xp_parcelas.round(0))
+#        try:
+#            xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
+#
+#            st.data_editor(xp_report.round(1),disabled=True)
+#            st.plotly_chart(fig)   
+#            st.plotly_chart(fig2)   
+#
         except Exception as e:
             print(f"An exception occurred: {e}")
             pass
+
 except Exception as e:
     logging.info(f"An error occurred: {e}")
 
@@ -162,7 +165,7 @@ try:
         
         try:
             nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-            st.write(nu_parcelas)
+            st.write(nu_parcelas.round(0))
         except Exception as e:
             logging.info(f"An error occurred: {e}")
 
