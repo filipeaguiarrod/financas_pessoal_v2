@@ -49,7 +49,6 @@ def display_xp(xp_class):
     return xp_class_disp
 
 def transform_partial_nu(nubank_html:str)->pd.DataFrame:
-
     # Recebe uma string com html e transforma em dataframe,
     # copiado direto do site da nubank
 
@@ -73,15 +72,16 @@ def transform_partial_nu(nubank_html:str)->pd.DataFrame:
     return df2
 
 def transform_nubank(nu_file)->pd.DataFrame:
-
-    
     # Recebe arquivo .csv do nubank (fatura fechada)
     # Retorna Df. para imprimir
 
     nubank = pd.read_csv(nu_file)
 
+    # Ajustando title para retirar " - Parcela X "
+    nubank['title'] = nubank['title'].str.replace(r' - Parcela.*', '', case=False, regex=True).str.strip()
     # Editando arquivo csv para usar no google sheets.
     nubank.amount = nubank.amount.astype('str')
+    # Retirando " - Parcelas"
     #nubank.drop(columns='category',inplace=True) -- csv novo não utiliza
     nubank = nubank[nubank.title != 'Pagamento recebido']
 
