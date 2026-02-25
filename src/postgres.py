@@ -24,21 +24,6 @@ class PostgresUploader:
       self.engine = self.connect_postgres()
       self.connection = self.engine.connect()
 
-      
-      # Print for debugging purposes
-      #clear
-      # print("DB_USER:", self.db_user)
-      #clear
-      # print("DB_PASSWORD:", self.db_password)
-      #clear
-      # print("DB_HOST:", self.db_host)
-      #clear
-      # print("DB_PORT:", self.db_port)
-      #clear
-      # print("DB_NAME:", self.db_name)
-      #clear
-      # print("DB_SCHEMA:", self.db_schema)
-
    def query_to_df(self,query):
 
       query = text(query)

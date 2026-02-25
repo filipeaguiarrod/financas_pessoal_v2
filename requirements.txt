@@ -17,7 +17,7 @@ Jinja2==3.1.6
 joblib==1.2.0
 jsonschema==4.25.0
 jsonschema-specifications==2025.4.1
-lxml==4.9.2
+lxml
 MarkupSafe==3.0.2
 narwhals==2.0.1
 numpy==2.3.2
@@ -52,3 +52,4 @@ urllib3==2.5.0
 watchdog==6.0.0
 xlrd==2.0.2
 xlsxwriter==3.2.5
+dotenv
