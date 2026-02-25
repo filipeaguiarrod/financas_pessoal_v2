@@ -141,18 +141,18 @@ class LLMAgent:
         else:
             df = pd.json_normalize(self.call_genai()['compras_parceladas'])
 
-        # Cálculo do que estava em função
-        df['calculo_parcelas_restantes'] = df['calculo_parcelas_restantes'].apply(lambda x: list(range(eval(x))))
-        # Vamos explodir para ser possível pivotar
-        dfe = df.explode(['calculo_parcelas_restantes'], ignore_index=True)
-        # Convertendo os números em datas 
-        dfe['calculo_parcelas_restantes'] = dfe['calculo_parcelas_restantes'].apply(lambda x: datetime.now().date() + relativedelta(months=x))
-        # Pivot e tratamento final:
-        dfe['valores_parcelas'] = dfe['valores_parcelas'].astype('float64')
-        dfe.rename(columns={'calculo_parcelas_restantes':'meses_restantes'}, inplace=True)
-        dfe = dfe.pivot_table(index="titulo", columns='meses_restantes', values="valores_parcelas")
-        dfe['Total'] = dfe.sum(axis=1)
-        dfe.sort_values(by='Total', ascending=False, inplace=True)
+        # # Cálculo do que estava em função
+        # df['calculo_parcelas_restantes'] = df['calculo_parcelas_restantes'].apply(lambda x: list(range(eval(x))))
+        # # Vamos explodir para ser possível pivotar
+        # dfe = df.explode(['calculo_parcelas_restantes'], ignore_index=True)
+        # # Convertendo os números em datas 
+        # dfe['calculo_parcelas_restantes'] = dfe['calculo_parcelas_restantes'].apply(lambda x: datetime.now().date() + relativedelta(months=x))
+        # # Pivot e tratamento final:
+        # dfe['valores_parcelas'] = dfe['valores_parcelas'].astype('float64')
+        # dfe.rename(columns={'calculo_parcelas_restantes':'meses_restantes'}, inplace=True)
+        # dfe = dfe.pivot_table(index="titulo", columns='meses_restantes', values="valores_parcelas")
+        # dfe['Total'] = dfe.sum(axis=1)
+        # dfe.sort_values(by='Total', ascending=False, inplace=True)
         
-        return dfe
+        # return dfe
     

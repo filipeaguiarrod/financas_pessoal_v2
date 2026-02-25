@@ -4,7 +4,7 @@ import sys
 import os
 import logging
 from src.sidebars import Navbar
-from src import llm_agent
+from src import llm_agent_langchain, llm_agent
 
 # Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -52,15 +52,10 @@ try:
     if option2:
 
         try:
-            xp_parcelas = llm_agent.LLMAgent(xp_raw).llm_parcelas_analyser(llm_agent='genai')
+            #xp_parcelas = llm_agent.LLMAgent(xp_raw).llm_parcelas_analyser(llm_agent='genai')
+            xp_parcelas = llm_agent_langchain.InstallmentAgent().generate_report_df(xp_raw)
             st.write(xp_parcelas.round(0))
-#        try:
-#            xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
-#
-#            st.data_editor(xp_report.round(1),disabled=True)
-#            st.plotly_chart(fig)   
-#            st.plotly_chart(fig2)   
-#
+
         except Exception as e:
             print(f"An exception occurred: {e}")
             pass
@@ -160,12 +155,17 @@ try:
     option5 = st.checkbox("**AI** - Analisar parcelas ?",key='nu_parcelas')
 
     if option5:
+        
 
         logging.info("Iniciando análise de parcelas com LLM...")
         
+        
         try:
-            nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-            st.write(nu_parcelas.round(0))
+            with st.spinner('Analisando parcelas futuras com inteligência artificial...'):
+                nu_parcelas = llm_agent_langchain.InstallmentAgent(provider = 'openai', model_name="gpt-5.2-2025-12-11").generate_report_df(nubank_raw)
+                st.write(nu_parcelas.round(0))
+            st.success("Done!")
+            st.button("Rerun")
         except Exception as e:
             logging.info(f"An error occurred: {e}")
 
