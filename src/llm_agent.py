@@ -1,13 +1,12 @@
-import pandas as pd
-import json
+import os
 import logging
-import os 
 from dotenv import load_dotenv
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-from google import genai
-from google.genai import types
-import openai
+import pandas as pd
+from typing import Literal
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 
 # Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,141 +17,100 @@ try:
 except:
    pass
 
-class LLMAgent:
 
-    def __init__(self, df: pd.DataFrame, temperature: float = 0.0, top_p: float = 0.1):
+class InstallmentAgent:
+    def __init__(self, 
+                 provider: Literal["openai", "gemini"] = "gemini", 
+                 model_name: str = "gemini-3-flash-preview"):
         """
-        Initialize the LLM Agent.
-
-        Args:
-            df (pd.DataFrame): The DataFrame with the credit card transactions.
-            temperature (float, optional): The temperature of the model. Defaults to 0.0.
-            top_p (float, optional): The top_p of the model. Defaults to 0.1.
+        Inicializa o analisador financeiro com o provedor escolhido.
         """
-        self.OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-        self.GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-        self.temperature = temperature
-        self.top_p = top_p
-        self.csv_as_text = df.to_csv(index=False)
-        self.prompt = """
-            Você vai receber uma tabela em formato CSV que contém a fatura de um cartão de crédito.
-
-            Essa tabela possui três colunas principais:
-
-            date: a data da transação.
-            title: a descrição da transação.
-            amount: o valor em reais da transação (positivo para cobranças, negativo para estornos).
-
-            Você pode identificar uma compra parcelada através do "title" que indica se aquela compra foi parcelada,
-            por exemplo: "Parcela X/Y" ou "X-Y".
-
-            Retorne a seguinte lista de jsons, cada json para uma transação parcelada identificada:
-
-            compras_parceladas:[{
-                                "titulo": "",
-                                "calculo_parcelas_restantes": "",
-                                "valores_parcelas": ""
-                                }]
-
-            - titulo: a descrição da transação.
-            - calculo_parcelas_restantes: Estruture porém não fala o cálculo final das parcelas restantes, que deve ser
-            se Parcela X/Y ou X-Y ou X de Y ou algo parecido, retorne "Y-X+1"
-            - valores_parcelas: contém o valor das parcelas. Os valores das parcelas devem ser iguais para uma mesma compra.
-            Esse número sempre existe portanto nunca deve retornar para uma compra um valor nulo.
-        """ + f'\nArquivo CSV: {self.csv_as_text}'
-    
-
-    def call_openai(self,model="o4-mini-2025-04-16") -> json:
-
-        
-        logging.info(f"Usando modelo {model} OpenAI para análise de parcelas.")
-
-        try:
-            logging.info(f"Iniciando chamada para o modelo da OpenAI {model}...")
-            
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini", 
-                response_format={"type": "json_object"},
-                messages=[{"role": "user", "content": self.prompt}],
-                temperature=self.temperature, 
-                top_p=self.top_p, 
+        if provider == "openai":
+            self.llm = ChatOpenAI(
+                model=model_name, 
+                temperature=0, 
+                api_key = os.environ.get('OPENAI_API_KEY')
+            )
+        else:
+            self.llm = ChatGoogleGenerativeAI(
+                model=model_name, 
+                temperature=0, 
+                api_key = os.environ.get('GOOGLE_API_KEY')
             )
             
-            logging.info("Resposta recebida do modelo.")
-            logging.info(response.text)
-            
-            json_df = json.loads(response.choices[0].message.content)
-            
-            return json_df
+    def prompt_template(self) -> ChatPromptTemplate:
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("user", """
+        Atue como um analista financeiro especialista em Python e processamento de dados.
+        Eu vou te enviar um arquivo JSON de fatura de cartão de crédito e preciso que você gere um relatório de parcelamentos 
+        futuros seguindo estas regras estritas:
+
+        Identificação de Parcelas:
+
+        - Procure por padrões de parcelamento nas colunas (ex: '2 de 3', 'Parcela 1/10', ou colunas que indiquem a parcela atual e o total).
+        - Podem existir colunas que indiquem o número da parcela. Se sim, utilize essas informações para identificar o número da parcela atual e o total de parcelas.
+        Cálculo de Projeção:
+
+        - Considere que a fatura atual é o mês de referência (se o arquivo for de Março/2026, a primeira coluna da tabela deve ser 03/2026).
+        - Para cada item parcelado, projete o valor fixo nos meses subsequentes até que a última parcela seja quitada.
+
+        Formatação da Saída:
+        Retorne uma tabela em json para posterior conversão via pandas, onde:
+
+        - A primeira coluna deve ser a Descrição (Estabelecimento + indicador da parcela, ex: 'Amazon (4/10)').
+        - As colunas seguintes devem ser os meses e anos (MM/AAAA).
+        - Adicione uma linha final de TOTAL MENSAL somando todas as parcelas de cada mês.
+
+        Limpeza de Dados:
+
+        - Remova transações que não são parceladas (onde não há 'X de Y' ou 'X/Y').
+        - Ignore pagamentos de fatura ou créditos, focando apenas em despesas parceladas.
+
+        {format_instructions}
+
+        DADOS DE ENTRADA:
+        {dados_json}
+        """)
+        ])
+
+        return prompt
+
+    def generate_report_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        logging.info("Iniciando geração do relatório...")
         
-        except json.JSONDecodeError as e:
-            logging.error(f"Erro ao decodificar JSON: {e}")
-        except Exception as e:
-            logging.error(f"Erro inesperado: {e}")
-    
-    
-    def call_genai(self, model="gemini-2.5-flash") -> json:
+        # IMPORTANTE: Não limpe as colunas de texto antes deste passo!
+        input_json = df.to_json(orient="records", force_ascii=False)
 
-        logging.info(f"Usando modelo {model} GenAI para análise de parcelas.")
+        parser = JsonOutputParser()
+        prompt = self.prompt_template().partial(
+            format_instructions=parser.get_format_instructions()
+        )
 
+        chain = prompt | self.llm | parser
+        
         try:
-            logging.info(f"Iniciando chamada para o modelo Gemini {model}...")
+            resultado = chain.invoke({"dados_json": input_json})
+            
+            # --- Lógica de Desempacotamento Robusto ---
+            lista_final = []
+            if isinstance(resultado, dict):
+                # Se o LLM insistir em encapsular em uma chave 'table' ou similar
+                for key in ['table', 'data', 'items', 'report']:
+                    if key in resultado and isinstance(resultado[key], list):
+                        lista_final = resultado[key]
+                        break
+                if not lista_final:
+                    lista_final = [resultado] # Caso seja um único objeto
+            else:
+                lista_final = resultado
 
-            client = genai.Client(api_key=self.GOOGLE_API_KEY)
-            generation_config = genai.types.GenerateContentConfig(
-                                                                    response_mime_type="application/json",
-                                                                    temperature=self.temperature,
-                                                                    top_p=self.top_p,
-                                                                 )
+            if not lista_final or (len(lista_final) == 1 and "TOTAL MENSAL" in str(lista_final[0])):
+                logging.warning("Nenhuma parcela encontrada nos dados.")
+                return pd.DataFrame()
 
-            response = client.models.generate_content(model=model, 
-                                                      contents=self.prompt, 
-                                                      config=generation_config)
-            logging.info("Resposta recebida do modelo.")
-            logging.info(response.text)
-
-            json_df = json.loads(response.text)
-            return json_df
-
-        except json.JSONDecodeError as e:
-            logging.error(f"Erro ao decodificar JSON: {e}")
+            return pd.DataFrame(lista_final)
+            
         except Exception as e:
-            logging.error(f"Erro inesperado: {e}")
-
-        return {}  # Retorna um dicionário vazio em caso de erro
-    
-    def llm_parcelas_analyser(self,llm_agent:str)-> pd.DataFrame:
-
-        """
-        Recebe o processamento do LLM e retorna o df analítico das parcelas
-
-        llm_agent:str -> 'openai' ou 'genai'
-
-        Expect a json with the following structure:
-        Input: compras_parceladas = [{
-                        "titulo":"",
-                        "calculo_parcelas_restantes":"",
-                        "valores_parcelas":""
-                     }]
-        """
-
-        if llm_agent == 'openai':
-            df = pd.json_normalize(self.call_openai()['compras_parceladas'])
-        else:
-            df = pd.json_normalize(self.call_genai()['compras_parceladas'])
-
-        # Cálculo do que estava em função
-        df['calculo_parcelas_restantes'] = df['calculo_parcelas_restantes'].apply(lambda x: list(range(eval(x))))
-        # Vamos explodir para ser possível pivotar
-        dfe = df.explode(['calculo_parcelas_restantes'], ignore_index=True)
-        # Convertendo os números em datas 
-        dfe['calculo_parcelas_restantes'] = dfe['calculo_parcelas_restantes'].apply(lambda x: datetime.now().date() + relativedelta(months=x))
-        # Pivot e tratamento final:
-        dfe['valores_parcelas'] = dfe['valores_parcelas'].astype('float64')
-        dfe.rename(columns={'calculo_parcelas_restantes':'meses_restantes'}, inplace=True)
-        dfe = dfe.pivot_table(index="titulo", columns='meses_restantes', values="valores_parcelas")
-        dfe['Total'] = dfe.sum(axis=1)
-        dfe.sort_values(by='Total', ascending=False, inplace=True)
-        
-        return dfe
-    
+            logging.error(f"Erro na execução da Chain: {e}")
+            return pd.DataFrame()

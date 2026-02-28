@@ -21,6 +21,25 @@ st.set_page_config(page_title='easy-financ-export',layout='centered')
 
 Navbar()
 
+# Função para trabalhar com a análise de parcelas usando o agente LLM
+def installment_analysis(data, provider="gemini", model_name="gemini-3-flash-preview"):
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        provider = st.selectbox("Provider", ["gemini", "openai"])
+    with col2:
+        model_name = st.text_input("Model Name", value="gemini-3-flash-preview")
+
+    try:
+        with st.spinner(f'🤖 Analisando parcelas futuras com **{provider}** - **{model_name}**'):
+            parcelas = llm_agent.InstallmentAgent(provider = provider, model_name=model_name).generate_report_df(data)
+        st.write(parcelas.round(0))
+        st.button("🔄 Rerun")
+    except Exception as e:
+        print(f"An exception occurred: {e}")
+        pass
+
 try:
 
     st.title('XP Investimentos')
@@ -32,7 +51,7 @@ try:
     logging.info(f"xp_raw: {xp_raw.shape}, xp: {xp.shape} processados com sucesso.")
     logging.info(xp.head(5))
 
-    option1 = st.checkbox("*Classificar transações ?*",value=False,key='xp_classifier')
+    option1 = st.toggle("*Classificar transações ?*",value=False,key='xp_classifier')
 
     # Valor total da fatura
     total_xp = xp['Valor'].str.replace(',','.').astype('float64').sum()
@@ -47,23 +66,11 @@ try:
     else:
         st.dataframe(banks.display_xp(xp))
 
-    option2 = st.checkbox("*Quer detalhar suas parcelas ?*",key='xp_parcelas')
+    # Sessão de análise de parcelas usando o agente LLM
+    option2 = st.toggle("Analisar parcelas **AI**",key='xp_parcelas')
 
     if option2:
-
-        try:
-            xp_parcelas = llm_agent.LLMAgent(xp_raw).llm_parcelas_analyser(llm_agent='genai')
-            st.write(xp_parcelas.round(0))
-#        try:
-#            xp_report,fig,fig2 = parcelas.execute_analysis(xp_raw,xp_class)
-#
-#            st.data_editor(xp_report.round(1),disabled=True)
-#            st.plotly_chart(fig)   
-#            st.plotly_chart(fig2)   
-#
-        except Exception as e:
-            print(f"An exception occurred: {e}")
-            pass
+        installment_analysis(xp_raw, provider="google", model_name="gemini-3-flash-preview")
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")
@@ -77,11 +84,9 @@ try:
     itau = pd.read_excel(itau_file)
 
     try: #Possivelmente antiga forma do itau gerar xls.
-
         itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0],0:4] #+1 para ignorar linha lançamento
 
     except: #Caso seja a nova forma 22/01/2022
-
         itau = itau.iloc[itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0]+1:,0:4]
 
     nome_antigo = itau.columns.to_list()
@@ -110,7 +115,6 @@ except Exception as e:
 # itaucard:
 
 try:
-
 
     itau_card_file = st.file_uploader("Jogue aqui o arquivo .xls Itaucard")
 
@@ -146,29 +150,21 @@ try:
 
     nubank = nubank_raw.copy()
 
-    option4 = st.checkbox("*Classificar transações ?*",value=False,key='nu_classifier')
+    option4 = st.toggle("*Classificar transações ?*",value=False,key='nu_classifier')
 
     if option4:
         nubank = classifier.classify_complete(nubank_raw,numeric_col='Valor',cat_col='Estabelecimento')
     
     st.metric("Valor Parcial",round(nubank['Valor'].astype('float64').sum(),2))
     
-    nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.',',')
+    nubank['Valor'] = nubank['Valor'].round(2).astype('str').str.replace('.',',')
 
     st.dataframe(nubank)
 
-    option5 = st.checkbox("**AI** - Analisar parcelas ?",key='nu_parcelas')
+    option5 = st.toggle("Analisar parcelas **AI**",key='nu_parcelas')
 
     if option5:
-
-        logging.info("Iniciando análise de parcelas com LLM...")
-        
-        try:
-            nu_parcelas = llm_agent.LLMAgent(nubank_raw).llm_parcelas_analyser(llm_agent='genai')
-            st.write(nu_parcelas.round(0))
-        except Exception as e:
-            logging.info(f"An error occurred: {e}")
-
+        installment_analysis(nubank_raw, provider="gemini", model_name="gemini-3-flash-preview")
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")
