@@ -143,7 +143,7 @@ def secondary_classifier(df_categorias,model_location='external',numeric_col='Va
     df_class_sec[numeric_col] = pd.to_numeric(df_class_sec[numeric_col], errors='coerce',downcast='float')
     df_class_sec[numeric_col].fillna(0,inplace=True)
     df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('float64')
-    
+    df_class_sec[numeric_col] = df_class_sec[numeric_col].round(2)
 
     return df_class_sec
 
@@ -160,6 +160,6 @@ def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento'):
     logging.info(f"Banco de dados classificado com sucesso. /n {df.sample()}")
     logging.info('Classificando através do modelo...')
     df1 = secondary_classifier(df,numeric_col=numeric_col)
-    logging.info("XP classificado com sucesso.")
+    logging.info("Classificado com sucesso.")
 
     return df1
