@@ -1,0 +1,4 @@
+Melhorar parse de contas parceladas.
+Criar um classificador de conta corrente itau.
+Criar regras para classificação de contas, usando LLM + SQL + Python (Ex. Pao de Acuçar sempre alimentação)
+Melhorar modelo usando o dia da semana como feature.

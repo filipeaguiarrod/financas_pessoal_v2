@@ -4,7 +4,7 @@ import sys
 import os
 import logging
 from src.sidebars import Navbar
-from src import llm_agent
+from ai_agents import llm_agent
 
 # Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,7 +14,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-from src import parcelas,classifier, banks #, llm_agent
+from src import parcelas,classifier, banks
 
 # Configuração do Streamlit
 st.set_page_config(page_title='easy-financ-export',layout='centered')
