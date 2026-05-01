@@ -50,7 +50,7 @@ try:
     option2 = st.toggle("Analisar parcelas", key='xp_parcelas')
 
     if option2:
-        st.dataframe(parcelas.pipeline_from_df(xp_raw))
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(xp_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")
@@ -142,7 +142,7 @@ try:
     option5 = st.toggle("Analisar parcelas", key='nu_parcelas')
 
     if option5:
-        st.dataframe(parcelas.pipeline_from_df(nubank_raw))
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")

@@ -51,6 +51,13 @@ def parse_nubank(raw: pd.DataFrame) -> pd.DataFrame:
     """Extrai parcelas do padrão Nubank '- Parcela X/Y' e devolve tabela padronizada.
 
     Espelha transform_nubank em src/banks.py — mesmo padrão verb_bank.
+
+    Saída:
+        estabelecimento        (str)   nome do estabelecimento sem sufixo de parcela
+        parcelas_pagas         (int)   número da parcela atual
+        qtd_parcelas           (int)   total de parcelas do parcelamento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer (inclusive a atual)
+        valor                  (float) valor de cada parcela
     """
     pattern = re.compile(r'- Parcela (\d+)/(\d+)')
 
@@ -78,6 +85,13 @@ def parse_xp(raw: pd.DataFrame) -> pd.DataFrame:
     """Extrai parcelas do padrão XP 'X de Y' e devolve tabela padronizada.
 
     Espelha transform_xp em src/banks.py — mesmo padrão verb_bank.
+
+    Saída:
+        estabelecimento        (str)   nome do estabelecimento
+        parcelas_pagas         (int)   número da parcela atual
+        qtd_parcelas           (int)   total de parcelas do parcelamento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer (inclusive a atual)
+        valor                  (float) valor de cada parcela
     """
     df = raw.copy()
     df = df[df['Estabelecimento'] != 'Pagamentos Validos Normais']
@@ -104,14 +118,24 @@ def parse_xp(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def standardize(raw: pd.DataFrame, bank: str) -> pd.DataFrame:
-    """Despacha para parse_nubank ou parse_xp conforme o banco detectado."""
+    """Despacha para parse_nubank ou parse_xp conforme o banco detectado.
+
+    Saída: mesma estrutura de parse_nubank / parse_xp
+        estabelecimento, parcelas_pagas, qtd_parcelas, qtd_parcelas_faltantes, valor
+    """
     if bank == 'nubank':
         return parse_nubank(raw)
     return parse_xp(raw)
 
 
 def build_crosstable(df: pd.DataFrame, invoice_month: datetime) -> pd.DataFrame:
-    """Converte a tabela de parcelas em crosstable com colunas MM/AAAA por mês futuro."""
+    """Converte a tabela de parcelas em crosstable com colunas MM/AAAA por mês futuro.
+
+    Saída:
+        estabelecimento        (str)   nome do estabelecimento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer
+        MM/AAAA ...            (float) valor da parcela no mês; NaN se não há cobrança
+    """
     max_months = int(df['qtd_parcelas_faltantes'].max())
     month_cols = [
         (invoice_month + relativedelta(months=i)).strftime('%m/%Y')
@@ -131,6 +155,73 @@ def build_crosstable(df: pd.DataFrame, invoice_month: datetime) -> pd.DataFrame:
     result[month_cols] = result[month_cols].astype('float64')
 
     return result
+
+
+def display_crosstable(df: pd.DataFrame):
+    """Ordena por parcelas faltantes, adiciona TOTAL por linha/coluna e aplica estilo cinza nos totais.
+
+    Saída (pd.Styler):
+        estabelecimento        (str)   nome do estabelecimento; última linha = 'TOTAL'
+        qtd_parcelas_faltantes (int)   parcelas a vencer; vazio na linha de total
+        MM/AAAA ...            (float) valor da parcela no mês; vazio se não há cobrança
+        TOTAL                  (float) soma dos meses por linha; soma geral na última linha
+    """
+    month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
+
+    result = df.sort_values('qtd_parcelas_faltantes', ascending=False).reset_index(drop=True)
+    result[month_cols] = result[month_cols].round(2)
+    result['TOTAL'] = result[month_cols].sum(axis=1).round(2)
+
+    totals = pd.DataFrame([{
+        'estabelecimento': 'TOTAL',
+        'qtd_parcelas_faltantes': '',
+        **{col: round(result[col].sum(), 2) for col in month_cols},
+        'TOTAL': round(result['TOTAL'].sum(), 2),
+    }])
+
+    result = pd.concat([result, totals], ignore_index=True)
+
+    numeric_cols = month_cols + ['TOTAL']
+
+    def _style(row):
+        is_total_row = row['estabelecimento'] == 'TOTAL'
+        styles = []
+        for col in row.index:
+            is_total_col = col == 'TOTAL'
+            if is_total_row or is_total_col:
+                styles.append('background-color: #d3d3d3; font-weight: bold')
+            else:
+                styles.append('')
+        return styles
+
+    formatter = {col: "{:.2f}" for col in numeric_cols}
+
+    return (
+        result.style
+        .apply(_style, axis=1)
+        .format(formatter, na_rep="")
+    )
+
+
+def merge_pipelines(filepaths) -> pd.DataFrame:
+    """Processa múltiplas faturas e retorna crosstable consolidada.
+
+    Saída: mesma estrutura de build_crosstable, cobrindo todos os meses das faturas recebidas.
+        estabelecimento        (str)   nome do estabelecimento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer
+        MM/AAAA ...            (float) valor da parcela no mês; NaN se não há cobrança
+    """
+    dfs_std = []
+    invoice_months = []
+
+    for fp in filepaths:
+        raw = load_csv(fp)
+        bank = detect_bank(raw)
+        invoice_months.append(extract_invoice_month(raw, bank))
+        dfs_std.append(standardize(raw, bank))
+
+    combined = pd.concat(dfs_std, ignore_index=True)
+    return build_crosstable(combined, min(invoice_months))
 
 
 def pipeline_from_df(raw: pd.DataFrame) -> pd.DataFrame:
