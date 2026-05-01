@@ -16,3 +16,4 @@ improvements
 .env.old
 .venv
 .vscode/
+data/

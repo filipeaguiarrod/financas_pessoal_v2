@@ -71,26 +71,19 @@ def transform_partial_nu(nubank_html:str)->pd.DataFrame:
      
     return df2
 
-def transform_nubank(nu_file)->pd.DataFrame:
-    # Recebe arquivo .csv do nubank (fatura fechada)
-    # Retorna Df. para imprimir
+def transform_nubank(nu_file):
+    nubank_raw = pd.read_csv(nu_file)
 
-    nubank = pd.read_csv(nu_file)
-
-    # Ajustando title para retirar " - Parcela X "
+    nubank = nubank_raw.copy()
     nubank['title'] = nubank['title'].str.replace(r' - Parcela.*', '', case=False, regex=True).str.strip()
-    # Editando arquivo csv para usar no google sheets.
     nubank.amount = nubank.amount.astype('str')
-    # Retirando " - Parcelas"
-    #nubank.drop(columns='category',inplace=True) -- csv novo não utiliza
     nubank = nubank[nubank.title != 'Pagamento recebido']
-
     nubank = nubank.rename(columns={
         'date':'Data',
         'title':'Estabelecimento',
         'amount':'Valor'
         })
-            
-    return nubank
+
+    return nubank_raw, nubank
    
     
