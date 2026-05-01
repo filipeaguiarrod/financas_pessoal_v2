@@ -11,6 +11,7 @@ RUN uv sync --frozen
 # Copia o código — qualquer mudança aqui não invalida o cache do uv sync
 COPY app.py ./
 COPY src ./src/
+COPY ai_agents ./ai_agents/
 COPY model ./model/
 COPY pages ./pages/
 COPY .streamlit ./.streamlit
