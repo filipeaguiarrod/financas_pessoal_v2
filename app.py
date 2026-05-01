@@ -4,7 +4,6 @@ import sys
 import os
 import logging
 from src.sidebars import Navbar
-from src import llm_agent
 
 # Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,31 +13,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Append the root folder to sys.path
 root_folder = os.path.join(current_dir, 'src', '..')
 sys.path.append(root_folder)
-from src import parcelas,classifier, banks #, llm_agent
+from src import parcelas,classifier, banks
 
 # Configuração do Streamlit
 st.set_page_config(page_title='easy-financ-export',layout='centered')
 
 Navbar()
 
-# Função para trabalhar com a análise de parcelas usando o agente LLM
-def installment_analysis(data, provider="gemini", model_name="gemini-3-flash-preview"):
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        provider = st.selectbox("Provider", ["gemini", "openai"])
-    with col2:
-        model_name = st.text_input("Model Name", value="gemini-3-flash-preview")
-
-    try:
-        with st.spinner(f'🤖 Analisando parcelas futuras com **{provider}** - **{model_name}**'):
-            parcelas = llm_agent.InstallmentAgent(provider = provider, model_name=model_name).generate_report_df(data)
-        st.write(parcelas.round(0))
-        st.button("🔄 Rerun")
-    except Exception as e:
-        print(f"An exception occurred: {e}")
-        pass
 
 try:
 
@@ -66,11 +47,10 @@ try:
     else:
         st.dataframe(banks.display_xp(xp))
 
-    # Sessão de análise de parcelas usando o agente LLM
-    option2 = st.toggle("Analisar parcelas **AI**",key='xp_parcelas')
+    option2 = st.toggle("Analisar parcelas", key='xp_parcelas')
 
     if option2:
-        installment_analysis(xp_raw, provider="google", model_name="gemini-3-flash-preview")
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(xp_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")
@@ -146,9 +126,7 @@ try:
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
 
-    nubank_raw = banks.transform_nubank(nu_file)
-
-    nubank = nubank_raw.copy()
+    nubank_raw, nubank = banks.transform_nubank(nu_file)
 
     option4 = st.toggle("*Classificar transações ?*",value=False,key='nu_classifier')
 
@@ -161,10 +139,10 @@ try:
 
     st.dataframe(nubank)
 
-    option5 = st.toggle("Analisar parcelas **AI**",key='nu_parcelas')
+    option5 = st.toggle("Analisar parcelas", key='nu_parcelas')
 
     if option5:
-        installment_analysis(nubank_raw, provider="gemini", model_name="gemini-3-flash-preview")
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"An error occurred: {e}")

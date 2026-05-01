@@ -9,6 +9,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def Navbar():
     with st.sidebar:
         st.page_link(os.path.join(ROOT_DIR, "app.py"), label="Bancos", icon='🏦')
+        st.page_link(os.path.join(ROOT_DIR, "pages", "parcelas.py"), label="Parcelas", icon='💳')
         st.page_link(os.path.join(ROOT_DIR, "pages", "ecommerce.py"), label="Ecommerce", icon='🛒')
         # Main Script
     return

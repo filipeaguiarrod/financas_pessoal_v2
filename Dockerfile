@@ -2,18 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install uv
 RUN pip install uv
 
-COPY pyproject.toml /app/
-COPY uv.lock /app/
-COPY app.py /app/
-COPY src /app/src/
-COPY model /app/model/
-COPY pages /app/pages/
-COPY .streamlit/ ./.streamlit
-
+# Copia só as deps primeiro — camada cacheada enquanto pyproject/uv.lock não mudam
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen
+
+# Copia o código — qualquer mudança aqui não invalida o cache do uv sync
+COPY app.py ./
+COPY src ./src/
+COPY model ./model/
+COPY pages ./pages/
+COPY .streamlit ./.streamlit
 
 EXPOSE 8501
 
