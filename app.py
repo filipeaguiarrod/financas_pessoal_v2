@@ -1,7 +1,6 @@
 import logging
 import streamlit as st
-from ai_agents import llm_agent
-from src import banks, classifier
+from src import banks, classifier, parcelas
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -9,22 +8,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 st.set_page_config(page_title='easy-financ-export', layout='centered')
 
 Navbar()
-
-
-def installment_analysis(data, provider="gemini", model_name="gemini-3-flash-preview"):
-    col1, col2 = st.columns(2)
-    with col1:
-        provider = st.selectbox("Provider", ["gemini", "openai"])
-    with col2:
-        model_name = st.text_input("Model Name", value="gemini-3-flash-preview")
-
-    try:
-        with st.spinner(f'🤖 Analisando parcelas futuras com **{provider}** - **{model_name}**'):
-            result = llm_agent.InstallmentAgent(provider=provider, model_name=model_name).generate_report_df(data)
-        st.write(result.round(0))
-        st.button("🔄 Rerun")
-    except Exception as e:
-        logging.error(f"Erro no agente LLM: {e}")
 
 
 # --- XP Investimentos ---
@@ -45,8 +28,8 @@ try:
     else:
         st.dataframe(banks.display_xp(xp))
 
-    if st.toggle("Analisar parcelas **AI**", key='xp_parcelas'):
-        installment_analysis(xp_raw)
+    if st.toggle("Analisar parcelas", key='xp_parcelas'):
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(xp_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"XP: {e}")
@@ -80,6 +63,8 @@ try:
     st.title('Nubank')
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
+    nubank_raw = parcelas.load_csv(nu_file)
+    nu_file.seek(0)
     nubank = banks.transform_nubank(nu_file)
 
     if st.toggle("*Classificar transações ?*", value=False, key='nu_classifier'):
@@ -89,8 +74,8 @@ try:
     nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
     st.dataframe(nubank)
 
-    if st.toggle("Analisar parcelas **AI**", key='nu_parcelas'):
-        installment_analysis(nubank)
+    if st.toggle("Analisar parcelas", key='nu_parcelas'):
+        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"Nubank: {e}")
