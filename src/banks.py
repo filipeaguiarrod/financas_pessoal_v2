@@ -48,6 +48,58 @@ def display_xp(xp_class):
     
     return xp_class_disp
 
+def transform_itau(itau_file) -> pd.DataFrame:
+    """Lê o XLS do Itau e retorna DataFrame com lançamentos limpos.
+
+    Saída:
+        data        (str) data do lançamento
+        lançamento  (str) descrição
+        ag./origem  (str) agência de origem
+        valor (R$)  (str) valor formatado com vírgula
+    """
+    itau = pd.read_excel(itau_file)
+
+    sujeiras = [
+        'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
+        'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
+        'SALDO TOTAL DISPONÃVEL DIA', 'REND PAGO APLIC AUT APR',
+    ]
+
+    try:
+        inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
+        fim = itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0]
+        itau = itau.iloc[inicio:fim, 0:4]
+    except Exception:
+        inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
+        itau = itau.iloc[inicio:, 0:4]
+
+    itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
+    itau = itau.loc[~itau['lançamento'].isin(sujeiras)]
+    itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
+
+    return itau
+
+
+def transform_itaucard(itau_card_file) -> pd.DataFrame:
+    """Lê o XLS do Itaucard e retorna DataFrame com lançamentos limpos.
+
+    Saída:
+        data   (str) data do lançamento
+        lançamento (str) descrição
+        valor  (str) valor formatado com vírgula
+    """
+    df = pd.read_excel(itau_card_file)
+    logging.info(f"Arquivo Itaucard carregado. Shape: {df.shape}")
+
+    inicio = df.loc[df['Logotipo Itaú'] == 'data'].index[0]
+    itau_card = df.iloc[inicio:].drop(columns='Unnamed: 2')
+    itau_card = itau_card.dropna().drop_duplicates().reset_index(drop=True)
+    itau_card = itau_card.rename(columns=itau_card.iloc[0]).iloc[1:]
+    itau_card['valor'] = itau_card['valor'].astype('str').str.replace('.', ',')
+
+    return itau_card
+
+
 def transform_partial_nu(nubank_html:str)->pd.DataFrame:
     # Recebe uma string com html e transforma em dataframe,
     # copiado direto do site da nubank
