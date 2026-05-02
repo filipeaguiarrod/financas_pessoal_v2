@@ -81,12 +81,13 @@ def transform_itau(itau_file) -> pd.DataFrame:
     """
     itau = pd.read_excel(itau_file)
 
-    def _strip(s: str) -> str:
-        s = unicodedata.normalize('NFD', str(s))
-        return ''.join(c for c in s if unicodedata.category(c) != 'Mn').upper()
+    def _ascii_upper(s: str) -> str:
+        # Remove non-ASCII chars before comparing — handles encoding variants
+        # e.g. DISPONÍVEL and DISPONÃVEL both become DISPONVEL
+        return ''.join(c for c in str(s) if c.isascii()).upper().strip()
 
     sujeiras = {
-        _strip(s) for s in [
+        _ascii_upper(s) for s in [
             'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
             'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
             'SALDO TOTAL DISPONÍVEL DIA', 'REND PAGO APLIC AUT APR',
@@ -102,7 +103,7 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].apply(lambda x: _strip(x) in sujeiras)]
+    itau = itau.loc[~itau['lançamento'].apply(lambda x: _ascii_upper(x) in sujeiras)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
 
     return itau
