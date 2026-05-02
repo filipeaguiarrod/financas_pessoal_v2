@@ -14,12 +14,12 @@ st.markdown("""
       │
       ▼
 ┌─────────────────────────────┐
-│  1. Histórico (banco de dados) │  ← estabelecimento + valor arredondado ao inteiro (ex: R$49,99 ≈ R$49,51)
+│  1. Regras do usuário        │  ← esta página — busca sentença no nome do estabelecimento
 └─────────────────────────────┘
       │ NÃO classificado
       ▼
 ┌─────────────────────────────┐
-│  2. Regras do usuário        │  ← esta página — busca sentença no nome do estabelecimento
+│  2. Histórico (banco de dados) │  ← estabelecimento + valor arredondado ao inteiro (ex: R$49,99 ≈ R$49,51)
 └─────────────────────────────┘
       │ NÃO classificado
       ▼
