@@ -161,6 +161,7 @@ def rules_classifier(df, cat_col='Estabelecimento'):
     Category case is preserved as-is (not uppercased).
     Input/Output: df with column 'categoria'
     '''
+    df = df.copy()
     psql = ps.PostgresUploader()
     rules = psql.get_rules()
 
