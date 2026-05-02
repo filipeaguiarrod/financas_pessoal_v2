@@ -1,6 +1,6 @@
 import logging
 import streamlit as st
-from src import banks, classifier, parcelas
+from src import banks, classifier, installments
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,8 +28,8 @@ try:
     else:
         st.dataframe(banks.display_xp(xp))
 
-    if st.toggle("Analisar parcelas", key='xp_parcelas'):
-        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(xp_raw)), use_container_width=True, height=600)
+    if st.toggle("Analisar parcelas", key='xp_installments'):
+        st.dataframe(installments.display_crosstable(installments.pipeline_from_df(xp_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"XP: {e}")
@@ -63,7 +63,7 @@ try:
     st.title('Nubank')
 
     nu_file = st.file_uploader("Jogue aqui o arquivo .csv Nubank")
-    nubank_raw = parcelas.load_csv(nu_file)
+    nubank_raw = installments.load_csv(nu_file)
     nu_file.seek(0)
     nubank = banks.transform_nubank(nu_file)
 
@@ -74,8 +74,8 @@ try:
     nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
     st.dataframe(nubank)
 
-    if st.toggle("Analisar parcelas", key='nu_parcelas'):
-        st.dataframe(parcelas.display_crosstable(parcelas.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
+    if st.toggle("Analisar parcelas", key='nu_installments'):
+        st.dataframe(installments.display_crosstable(installments.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
 
 except Exception as e:
     logging.info(f"Nubank: {e}")

@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from src import parcelas
+from src import installments
 
 BANK_COLORS = {'Nubank': '#5C2D91', 'XP Investimentos': "#B5B4B4"}
 
@@ -19,7 +19,7 @@ def bank_pie(bank_data: dict, invoice_month) -> go.Figure:
     """Retorna rosca com total a ser pago por banco."""
     pizza_data = []
     for label, (std_df, _) in bank_data.items():
-        ct = parcelas.build_crosstable(std_df, invoice_month)
+        ct = installments.build_crosstable(std_df, invoice_month)
         m_cols = [c for c in ct.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
         pizza_data.append({'Banco': label, 'Total': round(ct[m_cols].sum().sum(), 2)})
 
