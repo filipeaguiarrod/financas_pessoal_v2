@@ -14,7 +14,7 @@ st.markdown("""
       │
       ▼
 ┌─────────────────────────────┐
-│  1. Histórico (banco de dados) │  ← busca por estabelecimento + valor já vistos
+│  1. Histórico (banco de dados) │  ← estabelecimento + valor arredondado ao inteiro (ex: R$49,99 ≈ R$49,51)
 └─────────────────────────────┘
       │ NÃO classificado
       ▼
