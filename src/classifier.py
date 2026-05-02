@@ -6,7 +6,7 @@ import joblib
 from . import postgres as ps
 import requests
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, bindparam
 
 # Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,25 +46,22 @@ def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento'):
     # Cria a coluna arredondada para a união
     df['valor_round'] = df[numeric_col].round(0)
 
-    valores = '(' + ', '.join(map(str, df['valor_round'].tolist())) + ')'
-    estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df[cat_col].tolist()]) + ')'
-
-    #display(df)
-
-    # Define a query usando text()
-    # Distinct "garante" ou favorece que não haja duplicatas de labels
-    query = text(f'''SELECT DISTINCT
-                        categoria, 
-                        lancamento, 
+    query = text('''SELECT DISTINCT
+                        categoria,
+                        lancamento,
                         ROUND(valor, 0) AS valor_round
-                    FROM financials.credit_card 
-                    WHERE TRUE 
-                    AND ROUND(valor, 0) IN {valores} 
-                    AND lancamento IN {estabelecimentos}
-                ''')
-    
-    # Executa a query
-    result = connection.execute(query)
+                    FROM financials.credit_card
+                    WHERE ROUND(valor, 0) IN :valores
+                    AND lancamento IN :estabelecimentos
+                ''').bindparams(
+        bindparam('valores', expanding=True),
+        bindparam('estabelecimentos', expanding=True),
+    )
+
+    result = connection.execute(query, {
+        'valores': df['valor_round'].tolist(),
+        'estabelecimentos': df[cat_col].tolist(),
+    })
 
     # Converte o resultado para um DataFrame
     labels = pd.DataFrame(result.fetchall(), columns=result.keys())
