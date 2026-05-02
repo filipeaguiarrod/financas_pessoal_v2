@@ -24,6 +24,7 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='xp_classifier'):
         xp_class = banks.classify_xp(xp)
+        banks.classification_legend()
         st.dataframe(banks.style_classified(banks.display_xp(xp_class)))
     else:
         st.dataframe(banks.display_xp(xp))
@@ -71,6 +72,7 @@ try:
         nubank = classifier.classify_complete(nubank, numeric_col='Valor', cat_col='Estabelecimento')
         st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
         nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
+        banks.classification_legend()
         st.dataframe(banks.style_classified(nubank))
     else:
         st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
