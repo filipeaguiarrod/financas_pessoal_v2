@@ -72,7 +72,7 @@ class PostgresUploader:
 
    def get_categories(self) -> list:
       result = self.connection.execute(
-         text(f'SELECT DISTINCT categoria FROM {self.db_schema}.credit_card WHERE categoria IS NOT NULL ORDER BY categoria')
+         text(f'SELECT DISTINCT categoria FROM {self.db_schema}.credit_card WHERE categoria IS NOT NULL AND categoria != UPPER(categoria) ORDER BY categoria')
       )
       return [row[0] for row in result.fetchall()]
 
