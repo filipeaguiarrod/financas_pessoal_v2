@@ -5,8 +5,8 @@ from . import classifier
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 _SOURCE_COLORS = {
-    'historico': 'background-color: #1565C0; color: white',
-    'modelo':    'background-color: #E65100; color: white',
+    'historico': 'color: #1565C0',
+    'modelo':    'color: #E65100',
     'rules':     '',
 }
 
