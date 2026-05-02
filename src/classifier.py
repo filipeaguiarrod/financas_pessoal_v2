@@ -62,7 +62,7 @@ def rules_classifier(df, cat_col='Estabelecimento'):
     return df
 
 
-def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento'):
+def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento', table='credit_card'):
     '''
     Classify using database history of transactions.
     Only fills NaN categories. Tracks source as "historico" when _source column is present.
@@ -89,11 +89,12 @@ def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento'):
     if condition.any():
         unclassified = df.loc[condition]
 
-        query = text('''SELECT DISTINCT
+        schema = os.environ.get('DB_SCHEMA', 'financials')
+        query = text(f'''SELECT DISTINCT
                             categoria,
                             lancamento,
                             ROUND(valor, 0) AS valor_round
-                        FROM financials.credit_card
+                        FROM {schema}.{table}
                         WHERE ROUND(valor, 0) IN :valores
                         AND lancamento IN :estabelecimentos
                     ''').bindparams(
@@ -173,6 +174,25 @@ def secondary_classifier(df_categorias, model_location='external', numeric_col='
     df_class_sec[numeric_col] = df_class_sec[numeric_col].round(2)
 
     return df_class_sec
+
+
+def classify_checking_account(df, cat_col='lançamento', numeric_col='valor (R$)'):
+    '''
+    Classify checking account transactions using rules + historical DB only (no ML model).
+    Input: df from transform_itau() — cols ['data', 'lançamento', 'ag./origem', 'valor (R$)']
+    Output: same df + ['categoria', '_source']
+    '''
+    df = df.copy()
+    df['categoria'] = None
+    df['_source'] = None
+
+    logging.info('Conta corrente: classificando através das regras do usuário...')
+    df = rules_classifier(df, cat_col=cat_col)
+    logging.info('Conta corrente: classificando através do histórico...')
+    df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col, table='checking_account')
+    logging.info('Conta corrente: classificação concluída.')
+
+    return df.drop(columns=['valor_round'], errors='ignore')
 
 
 def classify_complete(df, numeric_col='Valor', cat_col='Estabelecimento'):

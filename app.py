@@ -10,15 +10,14 @@ st.set_page_config(page_title='easy-financ-export', layout='centered')
 Navbar()
 
 
-def classification_legend():
-    st.markdown(
-        '<small>'
-        '<span style="color:gray">■ Regras</span>&nbsp;&nbsp;'
-        '<span style="color:#1565C0">■ Histórico</span>&nbsp;&nbsp;'
-        '<span style="color:#E65100">■ Modelo</span>'
-        '</small>',
-        unsafe_allow_html=True,
-    )
+def classification_legend(show_modelo=True):
+    items = [
+        '<span style="color:gray">■ Regras</span>',
+        '<span style="color:#1565C0">■ Histórico</span>',
+    ]
+    if show_modelo:
+        items.append('<span style="color:#E65100">■ Modelo</span>')
+    st.markdown('<small>' + '&nbsp;&nbsp;'.join(items) + '</small>', unsafe_allow_html=True)
 
 
 # --- XP Investimentos ---
@@ -52,7 +51,14 @@ except Exception as e:
 try:
     st.title('Itau')
     itau_file = st.file_uploader("Jogue aqui o arquivo .xls Itau")
-    st.dataframe(banks.transform_itau(itau_file))
+    itau = banks.transform_itau(itau_file)
+
+    if st.toggle("*Classificar transações ?*", value=False, key='itau_classifier'):
+        itau = classifier.classify_checking_account(itau)
+        classification_legend(show_modelo=False)
+        st.dataframe(banks.style_classified(itau))
+    else:
+        st.dataframe(itau)
 
 except Exception as e:
     logging.info(f"Itau: {e}")
