@@ -4,6 +4,25 @@ from . import classifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+_SOURCE_COLORS = {
+    'historico': 'background-color: #1565C0; color: white',
+    'modelo':    'background-color: #E65100; color: white',
+    'rules':     '',
+}
+
+def style_classified(df: pd.DataFrame):
+    '''Apply color coding to the categoria column based on classification source.
+    Returns a Styler if _source is present, otherwise the plain DataFrame.'''
+    if '_source' not in df.columns or 'categoria' not in df.columns:
+        return df
+
+    def _apply(d):
+        styles = pd.DataFrame('', index=d.index, columns=d.columns)
+        styles['categoria'] = d['_source'].map(_SOURCE_COLORS).fillna('')
+        return styles
+
+    return df.style.apply(_apply, axis=None).hide(['_source'], axis='columns')
+
 def transform_xp(xp_file):
 
     """ 

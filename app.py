@@ -24,7 +24,7 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='xp_classifier'):
         xp_class = banks.classify_xp(xp)
-        st.dataframe(banks.display_xp(xp_class))
+        st.dataframe(banks.style_classified(banks.display_xp(xp_class)))
     else:
         st.dataframe(banks.display_xp(xp))
 
@@ -69,10 +69,13 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='nu_classifier'):
         nubank = classifier.classify_complete(nubank, numeric_col='Valor', cat_col='Estabelecimento')
-
-    st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
-    nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
-    st.dataframe(nubank)
+        st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
+        nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
+        st.dataframe(banks.style_classified(nubank))
+    else:
+        st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
+        nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
+        st.dataframe(nubank)
 
     if st.toggle("Analisar parcelas", key='nu_installments'):
         st.dataframe(installments.display_crosstable(installments.pipeline_from_df(nubank_raw)), use_container_width=True)
