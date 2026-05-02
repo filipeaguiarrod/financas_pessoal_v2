@@ -47,16 +47,7 @@ st.subheader('Regras cadastradas')
 if rules.empty:
     st.info('Nenhuma regra cadastrada ainda.')
 else:
-    st.dataframe(
-        rules,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            'id':        st.column_config.NumberColumn('ID', width='small'),
-            'sentenca':  st.column_config.TextColumn('Sentença'),
-            'categoria': st.column_config.TextColumn('Categoria'),
-        }
-    )
+    st.dataframe(rules, use_container_width=True, hide_index=True)
 
 st.divider()
 
