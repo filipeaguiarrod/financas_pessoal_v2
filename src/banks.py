@@ -10,17 +10,6 @@ _SOURCE_COLORS = {
     'rules':     '',
 }
 
-def classification_legend():
-    import streamlit as st
-    st.markdown(
-        '<small>'
-        '<span style="color:gray">■ Regras</span>&nbsp;&nbsp;'
-        '<span style="color:#1565C0">■ Histórico</span>&nbsp;&nbsp;'
-        '<span style="color:#E65100">■ Modelo</span>'
-        '</small>',
-        unsafe_allow_html=True,
-    )
-
 
 def style_classified(df: pd.DataFrame):
     '''Apply color coding to the categoria column based on classification source.
