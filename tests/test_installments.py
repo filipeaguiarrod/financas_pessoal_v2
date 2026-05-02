@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.parcelas import run_pipeline
+from src.installments import run_pipeline
 
-GROUND_TRUTH = Path(__file__).parent.parent / "data" / "ground_truth" / "parcelas"
+GROUND_TRUTH = Path(__file__).parent.parent / "data" / "ground_truth" / "installments"
 INPUTS_DIR = GROUND_TRUTH / "inputs"
 EXPECTED_DIR = GROUND_TRUTH / "expected"
 

@@ -1,8 +1,8 @@
 import logging
 import pandas as pd
 import streamlit as st
-from src import parcelas
-from src.parcelas_analytics_report import bank_pie, estab_bar, month_bar, different_months_warning
+from src import installments
+from src.installments_analytics_report import bank_pie, estab_bar, month_bar, different_months_warning
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,7 +19,7 @@ arquivos = st.file_uploader(
     "Arraste as faturas (.csv) — Nubank e/ou XP Investimentos",
     type="csv",
     accept_multiple_files=True,
-    key='parcelas_upload',
+    key='installments_upload',
 )
 
 try:
@@ -27,19 +27,19 @@ try:
         bank_data = {}
         for f in arquivos:
             f.seek(0)
-            raw = parcelas.load_csv(f)
-            bank = parcelas.detect_bank(raw)
+            raw = installments.load_csv(f)
+            bank = installments.detect_bank(raw)
             label = BANK_LABELS.get(bank, bank)
-            invoice_month = parcelas.extract_invoice_month(raw, bank)
-            std_df = parcelas.standardize(raw, bank)
+            invoice_month = installments.extract_invoice_month(raw, bank)
+            std_df = installments.standardize(raw, bank)
             bank_data[label] = (std_df, invoice_month)
 
         all_std = pd.concat([v[0] for v in bank_data.values()], ignore_index=True)
         invoice_month = min(v[1] for v in bank_data.values())
-        df = parcelas.build_crosstable(all_std, invoice_month)
-        month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
+        df = installments.build_crosstable(all_std, invoice_month)
+        month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qty_installments_remaining')]
 
-        st.dataframe(parcelas.display_crosstable(df), use_container_width=True, height=600)
+        st.dataframe(installments.display_crosstable(df), use_container_width=True, height=600)
 
         st.markdown("## Report analítico de parcelas")
 

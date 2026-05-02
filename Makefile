@@ -11,8 +11,8 @@ compose_up:
 	docker compose down --remove-orphans
 	docker compose up --build -d
 
-test_parcelas:
-	$(UV) pytest tests/test_parcelas.py -v -s
+test_installments:
+	$(UV) pytest tests/test_installments.py -v -s
 
 clean:
 	@echo "Limpando arquivos temporarios..."
