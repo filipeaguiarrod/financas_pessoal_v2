@@ -55,6 +55,7 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='itau_classifier'):
         itau = classifier.classify_checking_account(itau)
+        itau['valor (R$)'] = itau['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
         classification_legend(show_modelo=False)
         st.dataframe(banks.style_classified(itau))
     else:

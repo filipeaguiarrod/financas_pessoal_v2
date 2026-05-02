@@ -1,3 +1,4 @@
+import unicodedata
 import pandas as pd
 import logging
 from . import classifier
@@ -80,11 +81,17 @@ def transform_itau(itau_file) -> pd.DataFrame:
     """
     itau = pd.read_excel(itau_file)
 
-    sujeiras = [
-        'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
-        'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
-        'SALDO TOTAL DISPONÃVEL DIA', 'REND PAGO APLIC AUT APR',
-    ]
+    def _strip(s: str) -> str:
+        s = unicodedata.normalize('NFD', str(s))
+        return ''.join(c for c in s if unicodedata.category(c) != 'Mn').upper()
+
+    sujeiras = {
+        _strip(s) for s in [
+            'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
+            'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
+            'SALDO TOTAL DISPONÍVEL DIA', 'REND PAGO APLIC AUT APR',
+        ]
+    }
 
     try:
         inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
@@ -95,7 +102,7 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].isin(sujeiras)]
+    itau = itau.loc[~itau['lançamento'].apply(lambda x: _strip(x) in sujeiras)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
 
     return itau

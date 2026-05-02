@@ -192,7 +192,9 @@ def classify_checking_account(df, cat_col='lançamento', numeric_col='valor (R$)
     df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col, table='checking_account')
     logging.info('Conta corrente: classificação concluída.')
 
-    return df.drop(columns=['valor_round'], errors='ignore')
+    df = df.drop(columns=['valor_round'], errors='ignore')
+    other_cols = [c for c in df.columns if c not in ('categoria', '_source')]
+    return df[['categoria', '_source'] + other_cols]
 
 
 def classify_complete(df, numeric_col='Valor', cat_col='Estabelecimento'):
