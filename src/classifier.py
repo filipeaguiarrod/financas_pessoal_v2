@@ -2,13 +2,14 @@ import pandas as pd
 import numpy as np
 import logging
 import os
+import re
+import unicodedata
 import joblib
 from . import postgres as ps
 import requests
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, bindparam
 
-# Configuração básica do logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 try:
@@ -18,148 +19,205 @@ except:
    pass
 
 
-def connect_query():
+def _normalize(text: str) -> str:
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9]', '', text)
+    return text
 
+
+def connect_query():
     psql = ps.PostgresUploader()
     engine = psql.connect_postgres()
     connection = engine.connect()
-
     return connection
 
-def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento'):
-    '''
-    Classify using database history of transactions
-    Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
-    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
-    '''
 
+def rules_classifier(df, cat_col='Estabelecimento'):
+    '''
+    Classify using user-defined hard rules stored in the database.
+    Only fills NaN categories. Category case is preserved as-is (not uppercased).
+    Tracks source as "rules" when _source column is present.
+    '''
+    df = df.copy()
+    psql = ps.PostgresUploader()
+    rules = psql.get_rules()
+
+    if rules.empty:
+        return df
+
+    rules['_norm'] = rules['sentenca'].apply(_normalize)
+    condition = pd.isnull(df['categoria'])
+
+    for idx in df[condition].index:
+        nome_norm = _normalize(str(df.at[idx, cat_col]))
+        for _, rule in rules.iterrows():
+            if rule['_norm'] in nome_norm:
+                df.at[idx, 'categoria'] = rule['categoria']
+                if '_source' in df.columns:
+                    df.at[idx, '_source'] = 'rules'
+                break
+
+    return df
+
+
+def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento', table='credit_card'):
+    '''
+    Classify using database history of transactions.
+    Only fills NaN categories. Tracks source as "historico" when _source column is present.
+    Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
+    Output: df with 'categoria' filled for matched rows
+    '''
+    _via_pipeline = '_source' in df.columns
+
+    df = df.copy()
     connection = connect_query()
 
-    # Preparando o DataFram para matching.
     if df[numeric_col].dtype != 'float64':
         df[numeric_col] = df[numeric_col].str.replace(',', '.')
         df[numeric_col] = pd.to_numeric(df[numeric_col], errors='coerce', downcast='float')
         df[numeric_col].fillna(0, inplace=True)
-
-    # Coluna que vai retornar para salvar na planilha
-    df[numeric_col] = df[numeric_col].apply(lambda x: round(x,2)) 
-    # Cria a coluna arredondada para a união
+    df[numeric_col] = df[numeric_col].apply(lambda x: round(x, 2))
     df['valor_round'] = df[numeric_col].round(0)
 
-    valores = '(' + ', '.join(map(str, df['valor_round'].tolist())) + ')'
-    estabelecimentos = '(' + ', '.join([f"'{val}'" for val in df[cat_col].tolist()]) + ')'
+    if 'categoria' not in df.columns:
+        df['categoria'] = None
 
-    #display(df)
+    condition = pd.isnull(df['categoria'])
 
-    # Define a query usando text()
-    # Distinct "garante" ou favorece que não haja duplicatas de labels
-    query = text(f'''SELECT DISTINCT
-                        categoria, 
-                        lancamento, 
-                        ROUND(valor, 0) AS valor_round
-                    FROM financials.credit_card 
-                    WHERE TRUE 
-                    AND ROUND(valor, 0) IN {valores} 
-                    AND lancamento IN {estabelecimentos}
-                ''')
-    
-    # Executa a query
-    result = connection.execute(query)
+    if condition.any():
+        unclassified = df.loc[condition]
 
-    # Converte o resultado para um DataFrame
-    labels = pd.DataFrame(result.fetchall(), columns=result.keys())
-    labels = labels.drop_duplicates(subset=['lancamento', 'valor_round'])
+        schema = os.environ.get('DB_SCHEMA', 'financials')
+        query = text(f'''SELECT DISTINCT
+                            categoria,
+                            lancamento,
+                            ROUND(valor, 0) AS valor_round
+                        FROM {schema}.{table}
+                        WHERE ROUND(valor, 0) IN :valores
+                        AND lancamento IN :estabelecimentos
+                    ''').bindparams(
+            bindparam('valores', expanding=True),
+            bindparam('estabelecimentos', expanding=True),
+        )
+        result = connection.execute(query, {
+            'valores': unclassified['valor_round'].tolist(),
+            'estabelecimentos': unclassified[cat_col].tolist(),
+        })
+        labels = pd.DataFrame(result.fetchall(), columns=result.keys())
+        labels = labels.drop_duplicates(subset=['lancamento', 'valor_round'])
 
-    # Realiza a união (merge)
-    df_categorias = df.merge(labels, how='left', left_on=[cat_col, 'valor_round'], right_on=['lancamento', 'valor_round'])
+        merged = unclassified[[cat_col, 'valor_round']].merge(
+            labels, how='left',
+            left_on=[cat_col, 'valor_round'],
+            right_on=['lancamento', 'valor_round'],
+        )
+        merged.index = unclassified.index
 
+        found = ~pd.isnull(merged['categoria'])
+        df.loc[merged.index[found], 'categoria'] = merged.loc[found, 'categoria'].values
+        if _via_pipeline:
+            df.loc[merged.index[found], '_source'] = 'historico'
+
+    if _via_pipeline:
+        return df
+
+    # Standalone call: return with expected columns only
     try:
-        # Reorganiza e seleciona as colunas desejadas
-        df_categorias = df_categorias[['categoria', 'Data', 'Estabelecimento', numeric_col]]
+        return df[['categoria', 'Data', cat_col, numeric_col]]
     except KeyError:
-        # Trata o caso onde a coluna 'Data' não existe
-        df_categorias = df_categorias[['categoria', 'Estabelecimento', numeric_col]]
+        return df[['categoria', cat_col, numeric_col]]
 
-    return df_categorias
 
-def secondary_classifier(df_categorias,model_location='external',numeric_col='Valor'):
-    
+def secondary_classifier(df_categorias, model_location='external', numeric_col='Valor'):
     """
-    Classify using model trained with historical labels
-    Input: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
-    model_location: 'local' or 'external'
-    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
+    Classify using model trained with historical labels.
+    Only fills NaN categories. Tracks source as "modelo" when _source column is present.
+    Categories are uppercased (existing behavior).
     """
-
     df_class_sec = df_categorias.copy()
-    # Apply the model's predictions
     condition = pd.isnull(df_class_sec['categoria'])
-    
-    if model_location == 'local':
-        
-        # Find the root directory of your project
-        script_directory = os.path.dirname(os.path.abspath(__file__))
-        root_directory = os.path.dirname(script_directory)
-        model_directory = os.path.join(root_directory, 'model')
 
-        # Load the count vectorizer and the logistic classifier
-        loaded_cv_path = os.path.join(model_directory, 'count_vectorizer.pkl')
-        loaded_model_path = os.path.join(model_directory, 'logistic_classifier.pkl')
+    if condition.any():
+        if model_location == 'local':
+            script_directory = os.path.dirname(os.path.abspath(__file__))
+            root_directory = os.path.dirname(script_directory)
+            model_directory = os.path.join(root_directory, 'model')
 
-        loaded_cv = joblib.load(loaded_cv_path)
-        loaded_model = joblib.load(loaded_model_path)
-        predictions = loaded_model.predict(loaded_cv.transform(df_class_sec.loc[condition, 'Estabelecimento']))
-    
-    elif model_location == 'external':
+            loaded_cv = joblib.load(os.path.join(model_directory, 'count_vectorizer.pkl'))
+            loaded_model = joblib.load(os.path.join(model_directory, 'logistic_classifier.pkl'))
+            predictions = loaded_model.predict(loaded_cv.transform(df_class_sec.loc[condition, 'Estabelecimento']))
 
-        url = os.environ.get("CLASSIFICATION_MODEL_API")
-        logging.info(f"URL do classificador: {url}")
+        elif model_location == 'external':
+            url = os.environ.get("CLASSIFICATION_MODEL_API")
+            logging.info(f"URL do classificador: {url}")
+            headers = {"accept": "application/json", "Content-Type": "application/json"}
+            payload = {"lancamentos": df_class_sec.loc[condition, 'Estabelecimento'].tolist()}
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code == 200:
+                result = response.json()
+                predictions = result["classifications"]
+            else:
+                print(f"Erro: {response.status_code}, {response.text}")
 
-        headers = {
-            "accept": "application/json",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-                    "lancamentos": df_class_sec.loc[condition, 'Estabelecimento'].tolist()
-                  }
-        response = requests.post(url, json=payload, headers=headers)
-
-        # Verificando a resposta
-        if response.status_code == 200:
-            result = response.json()
-            print("Classificações recebidas:", result["classifications"])
-            predictions = result["classifications"]
-        else:
-            print(f"Erro: {response.status_code}, {response.text}")
-
-
-    predictions_upper = [pred.upper() for pred in predictions]
-    df_class_sec.loc[condition, 'categoria'] = predictions_upper
-
+        predictions_upper = [pred.upper() for pred in predictions]
+        df_class_sec.loc[condition, 'categoria'] = predictions_upper
+        if '_source' in df_class_sec.columns:
+            df_class_sec.loc[condition, '_source'] = 'modelo'
 
     df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('string')
     df_class_sec[numeric_col] = df_class_sec[numeric_col].str.replace(',', '.')
-    df_class_sec[numeric_col] = pd.to_numeric(df_class_sec[numeric_col], errors='coerce',downcast='float')
-    df_class_sec[numeric_col].fillna(0,inplace=True)
+    df_class_sec[numeric_col] = pd.to_numeric(df_class_sec[numeric_col], errors='coerce', downcast='float')
+    df_class_sec[numeric_col].fillna(0, inplace=True)
     df_class_sec[numeric_col] = df_class_sec[numeric_col].astype('float64')
     df_class_sec[numeric_col] = df_class_sec[numeric_col].round(2)
 
     return df_class_sec
 
-def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento'):
 
+def classify_checking_account(df, cat_col='lançamento', numeric_col='valor (R$)'):
     '''
-    Classify using database history and model returning both at the end.
+    Classify checking account transactions using rules + historical DB only (no ML model).
+    Input: df from transform_itau() — cols ['data', 'lançamento', 'ag./origem', 'valor (R$)']
+    Output: same df + ['categoria', '_source']
+    '''
+    df = df.copy()
+    df['categoria'] = None
+    df['_source'] = None
+
+    logging.info('Conta corrente: classificando através das regras do usuário...')
+    df = rules_classifier(df, cat_col=cat_col)
+    logging.info('Conta corrente: classificando através do histórico...')
+    df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col, table='checking_account')
+    logging.info('Conta corrente: classificação concluída.')
+
+    df = df.drop(columns=['valor_round'], errors='ignore')
+    other_cols = [c for c in df.columns if c not in ('categoria', '_source')]
+    return df[['categoria', '_source'] + other_cols]
+
+
+def classify_complete(df, numeric_col='Valor', cat_col='Estabelecimento'):
+    '''
+    Full classification pipeline: rules → historical DB → ML model.
     Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
-    Output: df, ['categoria', 'Data', 'Estabelecimento', 'Valor'], types=['object','object','object','float64']
+    Output: df, ['categoria', '_source', 'Data', 'Estabelecimento', 'Valor']
     '''
-    
-    logging.info('Classificando através do banco de dados...')
-    df = primary_classifier(df = df,numeric_col=numeric_col,cat_col=cat_col)
-    logging.info(f"Banco de dados classificado com sucesso. /n {df.sample()}")
-    logging.info('Classificando através do modelo...')
-    df1 = secondary_classifier(df,numeric_col=numeric_col)
-    logging.info("Classificado com sucesso.")
+    df = df.copy()
+    df['categoria'] = None
+    df['_source'] = None
 
-    return df1
+    logging.info('Classificando através das regras do usuário...')
+    df = rules_classifier(df, cat_col=cat_col)
+    logging.info('Classificando através do banco de dados...')
+    df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col)
+    logging.info('Classificando através do modelo...')
+    df = secondary_classifier(df, numeric_col=numeric_col)
+    logging.info('Classificado com sucesso.')
+
+    df = df.drop(columns=['valor_round'], errors='ignore')
+
+    try:
+        return df[['categoria', '_source', 'Data', cat_col, numeric_col]]
+    except KeyError:
+        return df[['categoria', '_source', cat_col, numeric_col]]

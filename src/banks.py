@@ -1,8 +1,30 @@
+import unicodedata
 import pandas as pd
 import logging
 from . import classifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+_SOURCE_COLORS = {
+    'historico': 'color: #1565C0',
+    'modelo':    'color: #E65100',
+    'rules':     '',
+}
+
+
+def style_classified(df: pd.DataFrame):
+    '''Apply color coding to the categoria column based on classification source.
+    Returns a Styler if _source is present, otherwise the plain DataFrame.'''
+    if '_source' not in df.columns or 'categoria' not in df.columns:
+        return df
+
+    source = df['_source'].copy()
+    display_df = df.drop(columns=['_source'])
+
+    def _color_categoria(col):
+        return source.map(_SOURCE_COLORS).fillna('')
+
+    return display_df.style.apply(_color_categoria, subset=['categoria'])
 
 def transform_xp(xp_file):
 
@@ -59,11 +81,18 @@ def transform_itau(itau_file) -> pd.DataFrame:
     """
     itau = pd.read_excel(itau_file)
 
-    sujeiras = [
-        'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
-        'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
-        'SALDO TOTAL DISPONÃVEL DIA', 'REND PAGO APLIC AUT APR',
-    ]
+    def _ascii_upper(s: str) -> str:
+        # Remove non-ASCII chars before comparing — handles encoding variants
+        # e.g. DISPONÍVEL and DISPONÃVEL both become DISPONVEL
+        return ''.join(c for c in str(s) if c.isascii()).upper().strip()
+
+    sujeiras = {
+        _ascii_upper(s) for s in [
+            'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
+            'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
+            'SALDO TOTAL DISPONÍVEL DIA', 'REND PAGO APLIC AUT APR',
+        ]
+    }
 
     try:
         inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
@@ -74,7 +103,7 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].isin(sujeiras)]
+    itau = itau.loc[~itau['lançamento'].apply(lambda x: _ascii_upper(x) in sujeiras)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
 
     return itau

@@ -10,6 +10,16 @@ st.set_page_config(page_title='easy-financ-export', layout='centered')
 Navbar()
 
 
+def classification_legend(show_modelo=True):
+    items = [
+        '<span style="color:gray">■ Regras</span>',
+        '<span style="color:#1565C0">■ Histórico</span>',
+    ]
+    if show_modelo:
+        items.append('<span style="color:#E65100">■ Modelo</span>')
+    st.markdown('<small>' + '&nbsp;&nbsp;'.join(items) + '</small>', unsafe_allow_html=True)
+
+
 # --- XP Investimentos ---
 
 try:
@@ -24,7 +34,8 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='xp_classifier'):
         xp_class = banks.classify_xp(xp)
-        st.dataframe(banks.display_xp(xp_class))
+        classification_legend()
+        st.dataframe(banks.style_classified(banks.display_xp(xp_class)))
     else:
         st.dataframe(banks.display_xp(xp))
 
@@ -40,7 +51,15 @@ except Exception as e:
 try:
     st.title('Itau')
     itau_file = st.file_uploader("Jogue aqui o arquivo .xls Itau")
-    st.dataframe(banks.transform_itau(itau_file))
+    itau = banks.transform_itau(itau_file)
+
+    if st.toggle("*Classificar transações ?*", value=False, key='itau_classifier'):
+        itau = classifier.classify_checking_account(itau)
+        itau['valor (R$)'] = itau['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
+        classification_legend(show_modelo=False)
+        st.dataframe(banks.style_classified(itau))
+    else:
+        st.dataframe(itau)
 
 except Exception as e:
     logging.info(f"Itau: {e}")
@@ -69,10 +88,14 @@ try:
 
     if st.toggle("*Classificar transações ?*", value=False, key='nu_classifier'):
         nubank = classifier.classify_complete(nubank, numeric_col='Valor', cat_col='Estabelecimento')
-
-    st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
-    nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
-    st.dataframe(nubank)
+        st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
+        nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
+        classification_legend()
+        st.dataframe(banks.style_classified(nubank))
+    else:
+        st.metric("Valor Parcial", round(nubank['Valor'].astype('float64').sum(), 2))
+        nubank['Valor'] = nubank['Valor'].astype('str').str.replace('.', ',')
+        st.dataframe(nubank)
 
     if st.toggle("Analisar parcelas", key='nu_installments'):
         st.dataframe(installments.display_crosstable(installments.pipeline_from_df(nubank_raw)), use_container_width=True)
