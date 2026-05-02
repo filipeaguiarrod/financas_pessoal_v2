@@ -70,12 +70,6 @@ class PostgresUploader:
                   dtype=dtype,
                   index=False)
 
-   def get_categories(self) -> list:
-      result = self.connection.execute(
-         text(f'SELECT DISTINCT categoria FROM {self.db_schema}.credit_card WHERE categoria IS NOT NULL AND categoria != UPPER(categoria) ORDER BY categoria')
-      )
-      return [row[0] for row in result.fetchall()]
-
    def ensure_rules_table(self):
       self.connection.execute(text(f'''
          CREATE TABLE IF NOT EXISTS {self.db_schema}.user_rules (

@@ -1,5 +1,6 @@
 import streamlit as st
 from src import postgres as ps
+from src.categories import CATEGORIES
 from src.sidebars import Navbar
 
 st.set_page_config(page_title='Regras do Usuário', layout='centered')
@@ -40,7 +41,6 @@ psql = ps.PostgresUploader()
 psql.ensure_rules_table()
 
 rules = psql.get_rules()
-categories = psql.get_categories()
 
 # --- Tabela de regras ---
 st.subheader('Regras cadastradas')
@@ -55,7 +55,7 @@ st.divider()
 st.subheader('Adicionar regra')
 with st.form('form_add', clear_on_submit=True):
     sentenca = st.text_input('Sentença', placeholder='ex: netflix')
-    categoria = st.selectbox('Categoria', options=categories)
+    categoria = st.selectbox('Categoria', options=CATEGORIES)
     submitted = st.form_submit_button('Salvar')
     if submitted:
         if sentenca.strip():
@@ -89,8 +89,8 @@ else:
                 nova_sentenca = st.text_input('Nova sentença', value=row['sentenca'])
                 nova_categoria = st.selectbox(
                     'Nova categoria',
-                    options=categories,
-                    index=categories.index(row['categoria']) if row['categoria'] in categories else 0,
+                    options=CATEGORIES,
+                    index=CATEGORIES.index(row['categoria']) if row['categoria'] in CATEGORIES else 0,
                 )
                 if st.form_submit_button('Atualizar'):
                     psql.update_rule(int(rule_id), nova_sentenca.strip(), nova_categoria)
