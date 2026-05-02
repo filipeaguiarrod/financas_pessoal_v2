@@ -136,6 +136,6 @@ def transform_nubank(nu_file):
         'amount':'Valor'
         })
 
-    return nubank_raw, nubank
+    return nubank
    
     
