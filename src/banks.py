@@ -16,12 +16,15 @@ def style_classified(df: pd.DataFrame):
     if '_source' not in df.columns or 'categoria' not in df.columns:
         return df
 
+    source = df['_source'].copy()
+    display_df = df.drop(columns=['_source'])
+
     def _apply(d):
         styles = pd.DataFrame('', index=d.index, columns=d.columns)
-        styles['categoria'] = d['_source'].map(_SOURCE_COLORS).fillna('')
+        styles['categoria'] = source.map(_SOURCE_COLORS).fillna('')
         return styles
 
-    return df.style.apply(_apply, axis=None).hide(['_source'], axis='columns')
+    return display_df.style.apply(_apply, axis=None)
 
 def transform_xp(xp_file):
 
