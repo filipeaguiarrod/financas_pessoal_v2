@@ -20,12 +20,10 @@ def style_classified(df: pd.DataFrame):
     source = df['_source'].copy()
     display_df = df.drop(columns=['_source'])
 
-    def _apply(d):
-        styles = pd.DataFrame('', index=d.index, columns=d.columns)
-        styles['categoria'] = source.map(_SOURCE_COLORS).fillna('')
-        return styles
+    def _color_categoria(col):
+        return source.map(_SOURCE_COLORS).fillna('')
 
-    return display_df.style.apply(_apply, axis=None)
+    return display_df.style.apply(_color_categoria, subset=['categoria'])
 
 def transform_xp(xp_file):
 
