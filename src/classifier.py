@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import logging
 import os
+import re
+import unicodedata
 import joblib
 from . import postgres as ps
 import requests
@@ -16,6 +18,14 @@ try:
    load_dotenv(dotenv_path=dotenv_path)
 except:
    pass
+
+
+def _normalize(text: str) -> str:
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9]', '', text)
+    return text
 
 
 def connect_query():
@@ -144,6 +154,32 @@ def secondary_classifier(df_categorias,model_location='external',numeric_col='Va
 
     return df_class_sec
 
+def rules_classifier(df, cat_col='Estabelecimento'):
+    '''
+    Classify using user-defined hard rules stored in the database.
+    Runs after primary_classifier; only fills NaN categories.
+    Category case is preserved as-is (not uppercased).
+    Input/Output: df with column 'categoria'
+    '''
+    psql = ps.PostgresUploader()
+    rules = psql.get_rules()
+
+    if rules.empty:
+        return df
+
+    rules['_norm'] = rules['sentenca'].apply(_normalize)
+    condition = pd.isnull(df['categoria'])
+
+    for idx in df[condition].index:
+        nome_norm = _normalize(str(df.at[idx, cat_col]))
+        for _, rule in rules.iterrows():
+            if rule['_norm'] in nome_norm:
+                df.at[idx, 'categoria'] = rule['categoria']
+                break
+
+    return df
+
+
 def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento'):
 
     '''
@@ -153,10 +189,11 @@ def classify_complete(df ,numeric_col='Valor',cat_col='Estabelecimento'):
     '''
     
     logging.info('Classificando através do banco de dados...')
-    df = primary_classifier(df = df,numeric_col=numeric_col,cat_col=cat_col)
-    logging.info(f"Banco de dados classificado com sucesso. /n {df.sample()}")
+    df = primary_classifier(df=df, numeric_col=numeric_col, cat_col=cat_col)
+    logging.info('Classificando através das regras do usuário...')
+    df = rules_classifier(df, cat_col=cat_col)
     logging.info('Classificando através do modelo...')
-    df1 = secondary_classifier(df,numeric_col=numeric_col)
+    df1 = secondary_classifier(df, numeric_col=numeric_col)
     logging.info("Classificado com sucesso.")
 
     return df1
