@@ -37,7 +37,7 @@ try:
         all_std = pd.concat([v[0] for v in bank_data.values()], ignore_index=True)
         invoice_month = min(v[1] for v in bank_data.values())
         df = installments.build_crosstable(all_std, invoice_month)
-        month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qty_installments_remaining')]
+        month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
 
         st.dataframe(installments.display_crosstable(df), use_container_width=True, height=600)
 

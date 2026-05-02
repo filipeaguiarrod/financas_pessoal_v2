@@ -48,16 +48,16 @@ def extract_invoice_month(raw: pd.DataFrame, bank: str) -> datetime:
 
 
 def parse_nubank(raw: pd.DataFrame) -> pd.DataFrame:
-    """Extrai installments do padrão Nubank '- Parcela X/Y' e devolve tabela padronizada.
+    """Extrai parcelas do padrão Nubank '- Parcela X/Y' e devolve tabela padronizada.
 
     Espelha transform_nubank em src/banks.py — mesmo padrão verb_bank.
 
     Saída:
-        estabelecimento            (str)   nome do estabelecimento sem sufixo de installment
-        installments_paid          (int)   número do installment atual
-        qty_installments           (int)   total de installments do parcelamento
-        qty_installments_remaining (int)   installments ainda a vencer (inclusive o atual)
-        valor                      (float) valor de cada installment
+        estabelecimento        (str)   nome do estabelecimento sem sufixo de parcela
+        parcelas_pagas         (int)   número da parcela atual
+        qtd_parcelas           (int)   total de parcelas do parcelamento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer (inclusive a atual)
+        valor                  (float) valor de cada parcela
     """
     pattern = re.compile(r'- Parcela (\d+)/(\d+)')
 
@@ -67,14 +67,14 @@ def parse_nubank(raw: pd.DataFrame) -> pd.DataFrame:
         m = pattern.search(title)
         if not m:
             continue
-        installments_paid = int(m.group(1))
-        qty_installments = int(m.group(2))
+        parcelas_pagas = int(m.group(1))
+        qtd_parcelas = int(m.group(2))
         estabelecimento = pattern.sub('', title).strip().rstrip(' -').strip()
         rows.append({
             'estabelecimento': estabelecimento,
-            'installments_paid': installments_paid,
-            'qty_installments': qty_installments,
-            'qty_installments_remaining': qty_installments - installments_paid + 1,
+            'parcelas_pagas': parcelas_pagas,
+            'qtd_parcelas': qtd_parcelas,
+            'qtd_parcelas_faltantes': qtd_parcelas - parcelas_pagas + 1,
             'valor': float(row['amount']),
         })
 
@@ -82,16 +82,16 @@ def parse_nubank(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def parse_xp(raw: pd.DataFrame) -> pd.DataFrame:
-    """Extrai installments do padrão XP 'X de Y' e devolve tabela padronizada.
+    """Extrai parcelas do padrão XP 'X de Y' e devolve tabela padronizada.
 
     Espelha transform_xp em src/banks.py — mesmo padrão verb_bank.
 
     Saída:
-        estabelecimento            (str)   nome do estabelecimento
-        installments_paid          (int)   número do installment atual
-        qty_installments           (int)   total de installments do parcelamento
-        qty_installments_remaining (int)   installments ainda a vencer (inclusive o atual)
-        valor                      (float) valor de cada installment
+        estabelecimento        (str)   nome do estabelecimento
+        parcelas_pagas         (int)   número da parcela atual
+        qtd_parcelas           (int)   total de parcelas do parcelamento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer (inclusive a atual)
+        valor                  (float) valor de cada parcela
     """
     df = raw.copy()
     df = df[df['Estabelecimento'] != 'Pagamentos Validos Normais']
@@ -104,13 +104,13 @@ def parse_xp(raw: pd.DataFrame) -> pd.DataFrame:
         m = pattern.search(str(row['Parcela']))
         if not m:
             continue
-        installments_paid = int(m.group(1))
-        qty_installments = int(m.group(2))
+        parcelas_pagas = int(m.group(1))
+        qtd_parcelas = int(m.group(2))
         rows.append({
             'estabelecimento': row['Estabelecimento'],
-            'installments_paid': installments_paid,
-            'qty_installments': qty_installments,
-            'qty_installments_remaining': qty_installments - installments_paid + 1,
+            'parcelas_pagas': parcelas_pagas,
+            'qtd_parcelas': qtd_parcelas,
+            'qtd_parcelas_faltantes': qtd_parcelas - parcelas_pagas + 1,
             'valor': parse_brl(row['Valor']),
         })
 
@@ -121,7 +121,7 @@ def standardize(raw: pd.DataFrame, bank: str) -> pd.DataFrame:
     """Despacha para parse_nubank ou parse_xp conforme o banco detectado.
 
     Saída: mesma estrutura de parse_nubank / parse_xp
-        estabelecimento, installments_paid, qty_installments, qty_installments_remaining, valor
+        estabelecimento, parcelas_pagas, qtd_parcelas, qtd_parcelas_faltantes, valor
     """
     if bank == 'nubank':
         return parse_nubank(raw)
@@ -129,26 +129,26 @@ def standardize(raw: pd.DataFrame, bank: str) -> pd.DataFrame:
 
 
 def build_crosstable(df: pd.DataFrame, invoice_month: datetime) -> pd.DataFrame:
-    """Converte a tabela de installments em crosstable com colunas MM/AAAA por mês futuro.
+    """Converte a tabela de parcelas em crosstable com colunas MM/AAAA por mês futuro.
 
     Saída:
-        estabelecimento            (str)   nome do estabelecimento
-        qty_installments_remaining (int)   installments ainda a vencer
-        MM/AAAA ...                (float) valor do installment no mês; NaN se não há cobrança
+        estabelecimento        (str)   nome do estabelecimento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer
+        MM/AAAA ...            (float) valor da parcela no mês; NaN se não há cobrança
     """
-    max_months = int(df['qty_installments_remaining'].max())
+    max_months = int(df['qtd_parcelas_faltantes'].max())
     month_cols = [
         (invoice_month + relativedelta(months=i)).strftime('%m/%Y')
         for i in range(max_months)
     ]
 
-    result = df[['estabelecimento', 'qty_installments_remaining', 'valor']].copy().reset_index(drop=True)
+    result = df[['estabelecimento', 'qtd_parcelas_faltantes', 'valor']].copy().reset_index(drop=True)
     for col in month_cols:
         result[col] = None
 
     for idx, row in result.iterrows():
-        remaining = int(row['qty_installments_remaining'])
-        cols_to_fill = month_cols[:remaining]
+        faltantes = int(row['qtd_parcelas_faltantes'])
+        cols_to_fill = month_cols[:faltantes]
         result.loc[idx, cols_to_fill] = row['valor']
 
     result = result.drop(columns=['valor'])
@@ -158,23 +158,23 @@ def build_crosstable(df: pd.DataFrame, invoice_month: datetime) -> pd.DataFrame:
 
 
 def display_crosstable(df: pd.DataFrame):
-    """Ordena por installments restantes, adiciona TOTAL por linha/coluna e aplica estilo cinza nos totais.
+    """Ordena por parcelas faltantes, adiciona TOTAL por linha/coluna e aplica estilo cinza nos totais.
 
     Saída (pd.Styler):
-        estabelecimento            (str)   nome do estabelecimento; última linha = 'TOTAL'
-        qty_installments_remaining (int)   installments a vencer; vazio na linha de total
-        MM/AAAA ...                (float) valor do installment no mês; vazio se não há cobrança
-        TOTAL                      (float) soma dos meses por linha; soma geral na última linha
+        estabelecimento        (str)   nome do estabelecimento; última linha = 'TOTAL'
+        qtd_parcelas_faltantes (int)   parcelas a vencer; vazio na linha de total
+        MM/AAAA ...            (float) valor da parcela no mês; vazio se não há cobrança
+        TOTAL                  (float) soma dos meses por linha; soma geral na última linha
     """
-    month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qty_installments_remaining')]
+    month_cols = [c for c in df.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
 
-    result = df.sort_values('qty_installments_remaining', ascending=False).reset_index(drop=True)
+    result = df.sort_values('qtd_parcelas_faltantes', ascending=False).reset_index(drop=True)
     result[month_cols] = result[month_cols].round(2)
     result['TOTAL'] = result[month_cols].sum(axis=1).round(2)
 
     totals = pd.DataFrame([{
         'estabelecimento': 'TOTAL',
-        'qty_installments_remaining': '',
+        'qtd_parcelas_faltantes': '',
         **{col: round(result[col].sum(), 2) for col in month_cols},
         'TOTAL': round(result['TOTAL'].sum(), 2),
     }])
@@ -207,9 +207,9 @@ def merge_pipelines(filepaths) -> pd.DataFrame:
     """Processa múltiplas faturas e retorna crosstable consolidada.
 
     Saída: mesma estrutura de build_crosstable, cobrindo todos os meses das faturas recebidas.
-        estabelecimento            (str)   nome do estabelecimento
-        qty_installments_remaining (int)   installments ainda a vencer
-        MM/AAAA ...                (float) valor do installment no mês; NaN se não há cobrança
+        estabelecimento        (str)   nome do estabelecimento
+        qtd_parcelas_faltantes (int)   parcelas ainda a vencer
+        MM/AAAA ...            (float) valor da parcela no mês; NaN se não há cobrança
     """
     dfs_std = []
     invoice_months = []
@@ -225,7 +225,7 @@ def merge_pipelines(filepaths) -> pd.DataFrame:
 
 
 def pipeline_from_df(raw: pd.DataFrame) -> pd.DataFrame:
-    """Executa o pipeline completo de installments a partir de um DataFrame já carregado."""
+    """Executa o pipeline completo de parcelas a partir de um DataFrame já carregado."""
     bank = detect_bank(raw)
     invoice_month = extract_invoice_month(raw, bank)
     df = standardize(raw, bank)
@@ -233,7 +233,7 @@ def pipeline_from_df(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def run_pipeline(filepath) -> pd.DataFrame:
-    """Executa o pipeline completo de installments a partir de um caminho de arquivo."""
+    """Executa o pipeline completo de parcelas a partir de um caminho de arquivo."""
     raw = load_csv(filepath)
     bank = detect_bank(raw)
     invoice_month = extract_invoice_month(raw, bank)

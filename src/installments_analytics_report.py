@@ -20,7 +20,7 @@ def bank_pie(bank_data: dict, invoice_month) -> go.Figure:
     pizza_data = []
     for label, (std_df, _) in bank_data.items():
         ct = installments.build_crosstable(std_df, invoice_month)
-        m_cols = [c for c in ct.columns if c not in ('estabelecimento', 'qty_installments_remaining')]
+        m_cols = [c for c in ct.columns if c not in ('estabelecimento', 'qtd_parcelas_faltantes')]
         pizza_data.append({'Banco': label, 'Total': round(ct[m_cols].sum().sum(), 2)})
 
     df_pizza = pd.DataFrame(pizza_data)
