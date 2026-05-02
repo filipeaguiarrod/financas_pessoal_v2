@@ -75,7 +75,7 @@ try:
     st.dataframe(nubank)
 
     if st.toggle("Analisar parcelas", key='nu_installments'):
-        st.dataframe(installments.display_crosstable(installments.pipeline_from_df(nubank_raw)), use_container_width=True, height=600)
+        st.dataframe(installments.display_crosstable(installments.pipeline_from_df(nubank_raw)), use_container_width=True)
 
 except Exception as e:
     logging.info(f"Nubank: {e}")
