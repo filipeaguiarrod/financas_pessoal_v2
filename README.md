@@ -21,8 +21,17 @@ Pode usar modelos de LLM para criar um report de extensão e valor das contas pa
 
 ### Aba E-commerce
 Processa dados de compras em lojinhas online através de HTML tabulado, ajudando na organização e categorização de gastos com e-commerce.
-- Shoppee
-- Amazon.
-Basta copiar o html nas páginas de pedidos e jogar que ele criar uma tabela de compras.
+- Shopee
+- Amazon
+- Mercado Livre (não mostra preços)
 
-## [WIP]Como Usar
+Basta copiar o html nas páginas de pedidos e colar no campo indicado para gerar a tabela de compras.
+
+### Aba Backoffice
+Agrupa ferramentas administrativas integradas ao banco de dados:
+- **Regras do Usuário**: Interface para cadastrar, editar ou remover regras personalizadas de classificação baseadas no nome do estabelecimento.
+- **Painel de ETL**: Controle integrado com a API externa (`http://XXX.XXX.X.X:7555/`) para acionar novas cargas de processamento e monitorar o status da última execução em segundo plano.
+- **Visualizador de Dados**: Consulta simplificada dos lançamentos de conta corrente e cartão de crédito salvos no banco de dados filtrados por mês de competência, exibindo a tabela com os nomes de colunas originais do banco.
+
+## Como Usar
+[WIP] Instruções de inicialização do projeto.
