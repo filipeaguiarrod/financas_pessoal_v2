@@ -11,6 +11,9 @@ def Navbar():
         st.page_link(os.path.join(ROOT_DIR, "app.py"), label="Bancos", icon='🏦')
         st.page_link(os.path.join(ROOT_DIR, "pages", "installments.py"), label="Parcelas", icon='💳')
         st.page_link(os.path.join(ROOT_DIR, "pages", "ecommerce.py"), label="Ecommerce", icon='🛒')
+        st.markdown("---")
+        st.markdown("### 💼 Backoffice")
         st.page_link(os.path.join(ROOT_DIR, "pages", "regras.py"), label="Regras do Usuário", icon='📋')
+        st.page_link(os.path.join(ROOT_DIR, "pages", "etl.py"), label="ETL", icon='⚙️')
         # Main Script
     return
