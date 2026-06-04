@@ -109,3 +109,59 @@ def parse_amazon(html_string:str) -> pd.DataFrame:
     df = pd.DataFrame(compras_amazon)
 
     return st.dataframe(df, column_config=config,row_height=100,hide_index=True)
+
+
+def parse_mercadolivre(html_string: str) -> pd.DataFrame:
+    import re
+    compras_ml = {'descricao': [], 'data': [], 'preco': [], 'url_detalhes': []}
+    soup = BeautifulSoup(html_string, 'html.parser')
+    
+    div_elements = soup.find_all('div', class_='list-item')
+    
+    for div in div_elements:
+        title_elem = div.find('a', class_='list-item__link')
+        descricao = title_elem.text.strip() if title_elem else ""
+        if not descricao:
+            continue
+            
+        if descricao in compras_ml['descricao']:
+            continue
+            
+        # Extração simplificada de status e datas
+        intro_elem = div.find('p', class_='list-item__intro')
+        intro_txt = intro_elem.text.strip() if intro_elem else ""
+        
+        date_elem_p = div.find('p', class_='list-item__title')
+        date_txt = date_elem_p.text.strip() if date_elem_p else ""
+        
+        # Simplifica: "Chegou no dia 27 de maio" -> "27 de maio" ou "Você cancelou a compra" -> "Cancelado"
+        data = ""
+        if "cancelou" in intro_txt.lower() or "cancelou" in date_txt.lower():
+            data = "Cancelado"
+        else:
+            match = re.search(r'Chegou (?:no dia )?(.+)', date_txt, re.IGNORECASE)
+            if match:
+                data = match.group(1)
+            else:
+                data = date_txt if date_txt else (intro_txt if intro_txt else "-")
+                
+        # Mercado Livre não fornece preços no histórico de listagem geral
+        preco = "-"
+        
+        url = title_elem['href'] if title_elem and title_elem.has_attr('href') else "Sem link disponível"
+        if url.startswith('/'):
+            url = "https://www.mercadolivre.com.br" + url
+            
+        compras_ml['descricao'].append(descricao)
+        compras_ml['data'].append(data)
+        compras_ml['preco'].append(preco)
+        compras_ml['url_detalhes'].append(url)
+        
+    config = {
+        "descricao": st.column_config.TextColumn("Descrição", width="medium"),
+        "data": st.column_config.TextColumn("Data", width="medium"),
+        "preco": st.column_config.TextColumn("Preço", width="small"),
+        "url_detalhes": st.column_config.LinkColumn("Link para detalhes", width="large")
+    }
+    df = pd.DataFrame(compras_ml)
+    return st.dataframe(df, column_config=config, row_height=100, hide_index=True)
