@@ -93,9 +93,9 @@ def primary_classifier(df, numeric_col='Valor', cat_col='Estabelecimento', table
         query = text(f'''SELECT DISTINCT
                             categoria,
                             lancamento,
-                            ROUND(valor, 0) AS valor_round
+                            ROUND(CAST(valor AS numeric), 0) AS valor_round
                         FROM {schema}.{table}
-                        WHERE ROUND(valor, 0) IN :valores
+                        WHERE ROUND(CAST(valor AS numeric), 0) IN :valores
                         AND lancamento IN :estabelecimentos
                     ''').bindparams(
             bindparam('valores', expanding=True),
@@ -175,49 +175,3 @@ def secondary_classifier(df_categorias, model_location='external', numeric_col='
 
     return df_class_sec
 
-
-def classify_checking_account(df, cat_col='lançamento', numeric_col='valor (R$)'):
-    '''
-    Classify checking account transactions using rules + historical DB only (no ML model).
-    Input: df from transform_itau() — cols ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    Output: same df + ['categoria', '_source']
-    '''
-    df = df.copy()
-    df['categoria'] = None
-    df['_source'] = None
-
-    logging.info('Conta corrente: classificando através das regras do usuário...')
-    df = rules_classifier(df, cat_col=cat_col)
-    logging.info('Conta corrente: classificando através do histórico...')
-    df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col, table='checking_account')
-    logging.info('Conta corrente: classificação concluída.')
-
-    df = df.drop(columns=['valor_round'], errors='ignore')
-    other_cols = [c for c in df.columns if c not in ('categoria', '_source')]
-    return df[['categoria', '_source'] + other_cols]
-
-
-def classify_complete(df, numeric_col='Valor', cat_col='Estabelecimento'):
-    '''
-    Full classification pipeline: rules → historical DB → ML model.
-    Input: df, cols = ['Data', 'Estabelecimento', 'Valor'], types = 'object'
-    Output: df, ['categoria', '_source', 'Data', 'Estabelecimento', 'Valor']
-    '''
-    df = df.copy()
-    df['categoria'] = None
-    df['_source'] = None
-
-    logging.info('Classificando através das regras do usuário...')
-    df = rules_classifier(df, cat_col=cat_col)
-    logging.info('Classificando através do banco de dados...')
-    df = primary_classifier(df, numeric_col=numeric_col, cat_col=cat_col)
-    logging.info('Classificando através do modelo...')
-    df = secondary_classifier(df, numeric_col=numeric_col)
-    logging.info('Classificado com sucesso.')
-
-    df = df.drop(columns=['valor_round'], errors='ignore')
-
-    try:
-        return df[['categoria', '_source', 'Data', cat_col, numeric_col]]
-    except KeyError:
-        return df[['categoria', '_source', cat_col, numeric_col]]
