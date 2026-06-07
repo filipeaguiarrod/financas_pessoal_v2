@@ -52,6 +52,16 @@ def transform_itau(itau_file) -> pd.DataFrame:
         ]
     }
 
+    def _is_sujeira(x):
+        x_upper = _ascii_upper(x)
+        if x_upper in sujeiras:
+            return True
+        if 'PAG BOLETO BANCO XP' in x_upper:
+            return True
+        if 'PIX QRS NU PAGAMENT' in x_upper:
+            return True
+        return False
+
     try:
         inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
         fim = itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0]
@@ -61,7 +71,7 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].apply(lambda x: _ascii_upper(x) in sujeiras)]
+    itau = itau.loc[~itau['lançamento'].apply(_is_sujeira)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
     itau['ag./origem'] = 'ITAU'
 
@@ -153,9 +163,15 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
         if date_pattern.match(date_str):
             history = parts[1]
 
-            # Verifica se é lixo
+            # Verifica se é lixo ou transações indesejadas
             upper_history = ''.join(c for c in history if c.isascii()).upper().strip()
             if any(s in upper_history for s in sujeiras):
+                continue
+            if 'RENTAB.INVEST FACILCRED' in upper_history:
+                continue
+            if 'PAG BOLETO BANCO XP' in upper_history:
+                continue
+            if 'PIX QRS NU PAGAMENT' in upper_history:
                 continue
 
             docto = parts[2] if len(parts) > 2 else ""
@@ -195,6 +211,12 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
             desc = parts[1]
             upper_desc = ''.join(c for c in desc if c.isascii()).upper().strip()
             if any(s in upper_desc for s in sujeiras):
+                continue
+            if 'RENTAB.INVEST FACILCRED' in upper_desc:
+                continue
+            if 'PAG BOLETO BANCO XP' in upper_desc:
+                continue
+            if 'PIX QRS NU PAGAMENT' in upper_desc:
                 continue
 
             if last_row is not None:
