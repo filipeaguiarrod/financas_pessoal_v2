@@ -112,12 +112,49 @@ def transform_partial_nu(nubank_html: str) -> pd.DataFrame:
     return df2
 
 
+def parse_nubank_amount(val) -> float:
+    """Converte o valor do Nubank para float, aceitando tanto '.' quanto ',' como separador decimal.
+    
+    Exemplos:
+    - 34.86 -> 34.86
+    - 34,86 -> 34.86
+    - 1,234.56 -> 1234.56 (if thousands separator is used)
+    - 1.234,56 -> 1234.56 (if thousands separator is used)
+    """
+    if pd.isna(val):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip()
+    if not val_str:
+        return 0.0
+    
+    val_str = val_str.replace('R$', '').strip()
+    
+    # Handle case where both dot and comma are present
+    if ',' in val_str and '.' in val_str:
+        if val_str.rfind(',') > val_str.rfind('.'):
+            # Comma is the decimal separator (e.g. 1.234,56)
+            val_str = val_str.replace('.', '').replace(',', '.')
+        else:
+            # Dot is the decimal separator (e.g. 1,234.56)
+            val_str = val_str.replace(',', '')
+    elif ',' in val_str:
+        # Only comma is present (e.g. 34,86)
+        val_str = val_str.replace(',', '.')
+        
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+
 def transform_nubank(nu_file):
     nubank_raw = pd.read_csv(nu_file)
 
     nubank = nubank_raw.copy()
     nubank['title'] = nubank['title'].str.replace(r' - Parcela.*', '', case=False, regex=True).str.strip()
-    nubank.amount = nubank.amount.astype('str')
+    nubank['amount'] = nubank['amount'].apply(parse_nubank_amount)
     nubank = nubank[nubank.title != 'Pagamento recebido']
     nubank = nubank.rename(columns={
         'date': 'Data',

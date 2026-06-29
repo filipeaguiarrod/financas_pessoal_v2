@@ -2,6 +2,7 @@ import re
 import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from .credit_card import parse_nubank_amount
 
 
 def parse_brl(value: str) -> float:
@@ -75,7 +76,7 @@ def parse_nubank(raw: pd.DataFrame) -> pd.DataFrame:
             'parcelas_pagas': parcelas_pagas,
             'qtd_parcelas': qtd_parcelas,
             'qtd_parcelas_faltantes': qtd_parcelas - parcelas_pagas + 1,
-            'valor': float(row['amount']),
+            'valor': parse_nubank_amount(row['amount']),
         })
 
     return pd.DataFrame(rows)

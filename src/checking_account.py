@@ -134,7 +134,8 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
 
     sujeiras = {
         'SALDO ANTERIOR', 'TOTAL DO DIA', 'TOTAL', 'SALDO INVEST FÁCIL',
-        'SALDO INVEST FACIL', 'ÚLTIMOS LANÇAMENTOS', 'ULTIMOS LANCAMENTOS'
+        'SALDO INVEST FACIL', 'ÚLTIMOS LANÇAMENTOS', 'ULTIMOS LANCAMENTOS',
+        'RENT.INV.FACIL', 'RENTAB.INVEST'
     }
 
     match_count = 0

@@ -6,7 +6,7 @@ import pytest
 
 from src.installments import run_pipeline
 
-GROUND_TRUTH = Path(__file__).parent.parent / "data" / "ground_truth" / "installments"
+GROUND_TRUTH = Path(__file__).parent.parent / "data" / "ground_truth" / "parcelas"
 INPUTS_DIR = GROUND_TRUTH / "inputs"
 EXPECTED_DIR = GROUND_TRUTH / "expected"
 
