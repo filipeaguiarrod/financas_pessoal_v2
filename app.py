@@ -168,13 +168,8 @@ with st.expander("🏦 Conta Corrente", expanded=False):
             itau_raw = checking_account.transform_itau(itau_file)
             bradesco_raw = checking_account.transform_bradesco(bradesco_file)
 
-            # Merge
-            merged = pd.concat([itau_raw, bradesco_raw], ignore_index=True)
-
-            # Ordenar por data da menor para a maior
-            merged['_dt_parsed'] = pd.to_datetime(merged['data'], format='%d/%m/%Y', errors='coerce')
-            merged = merged.sort_values(by='_dt_parsed', ascending=True)
-            merged = merged.drop(columns=['_dt_parsed'])
+            # Consolidar usando as regras de filtragem
+            merged = checking_account.consolidate_checking_accounts(itau_raw, bradesco_raw)
 
             if st.toggle("*Classificar transações consolidadas ?*", value=False, key='consolidated_classifier'):
                 merged_class = checking_account.classify_checking_account(merged)

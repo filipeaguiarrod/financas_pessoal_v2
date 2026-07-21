@@ -52,6 +52,16 @@ def transform_itau(itau_file) -> pd.DataFrame:
         ]
     }
 
+    def _is_sujeira(x):
+        x_upper = _ascii_upper(x)
+        if x_upper in sujeiras:
+            return True
+        if 'PAG BOLETO BANCO XP' in x_upper:
+            return True
+        if 'PIX QRS NU PAGAMENT' in x_upper:
+            return True
+        return False
+
     try:
         inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
         fim = itau.loc[itau['Logotipo Itaú'] == 'lançamentos futuros'].index[0]
@@ -61,7 +71,7 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].apply(lambda x: _ascii_upper(x) in sujeiras)]
+    itau = itau.loc[~itau['lançamento'].apply(_is_sujeira)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
     itau['ag./origem'] = 'ITAU'
 
@@ -154,9 +164,15 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
         if date_pattern.match(date_str):
             history = parts[1]
 
-            # Verifica se é lixo
+            # Verifica se é lixo ou transações indesejadas
             upper_history = ''.join(c for c in history if c.isascii()).upper().strip()
             if any(s in upper_history for s in sujeiras):
+                continue
+            if 'RENTAB.INVEST FACILCRED' in upper_history:
+                continue
+            if 'PAG BOLETO BANCO XP' in upper_history:
+                continue
+            if 'PIX QRS NU PAGAMENT' in upper_history:
                 continue
 
             docto = parts[2] if len(parts) > 2 else ""
@@ -197,6 +213,12 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
             upper_desc = ''.join(c for c in desc if c.isascii()).upper().strip()
             if any(s in upper_desc for s in sujeiras):
                 continue
+            if 'RENTAB.INVEST FACILCRED' in upper_desc:
+                continue
+            if 'PAG BOLETO BANCO XP' in upper_desc:
+                continue
+            if 'PIX QRS NU PAGAMENT' in upper_desc:
+                continue
 
             if last_row is not None:
                 last_row['lançamento'] += f" - {desc}"
@@ -213,4 +235,111 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
     df['ag./origem'] = 'BRAD'
 
     return df[['data', 'lançamento', 'ag./origem', 'valor (R$)']]
+
+
+def consolidate_checking_accounts(itau_df: pd.DataFrame, bradesco_df: pd.DataFrame) -> pd.DataFrame:
+    """Consolida os extratos do Itaú e do Bradesco aplicando regras de filtragem de sujeira.
+
+    Regras aplicadas:
+    1. Ignora transações do Bradesco contendo 'Rentab.invest Facilcred*'
+    2. Ignora pagamentos de fatura do cartão de crédito (XP e Nubank)
+    3. Ignora transferências internas entre Itaú e Bradesco na mesma data com mesmo valor e sinais opostos.
+    """
+    # 1. Copiar os DataFrames
+    itau = itau_df.copy()
+    bradesco = bradesco_df.copy()
+
+    # 2. Concatenar
+    merged = pd.concat([itau, bradesco], ignore_index=True)
+    if merged.empty:
+        return merged
+
+    # 3. Colunas auxiliares para filtragem
+    merged['_date_obj'] = pd.to_datetime(merged['data'], format='%d/%m/%Y', errors='coerce').dt.date
+
+    def _to_float(val):
+        if pd.isna(val):
+            return 0.0
+        if isinstance(val, (int, float)):
+            return float(val)
+        val_str = str(val).strip()
+        if ',' in val_str:
+            val_str = val_str.replace('.', '').replace(',', '.')
+        try:
+            return float(val_str)
+        except ValueError:
+            return 0.0
+
+    merged['_value_float'] = merged['valor (R$)'].apply(_to_float)
+
+    def _normalize_desc(s):
+        if pd.isna(s):
+            return ""
+        s_norm = ''.join(c for c in unicodedata.normalize('NFD', str(s)) if unicodedata.category(c) != 'Mn')
+        return s_norm.upper().strip()
+
+    merged['_desc_norm'] = merged['lançamento'].apply(_normalize_desc)
+
+    indices_to_drop = set()
+
+    # --- Regra 1 e 2: Filtros de descrição (Rentab.invest, XP, Nubank) ---
+    for idx, row in merged.iterrows():
+        desc = row['_desc_norm']
+        origin = row['ag./origem']
+
+        # Bradesco Rentab.invest Facilcred*
+        if origin == 'BRAD' and 'RENTAB.INVEST FACILCRED' in desc:
+            indices_to_drop.add(idx)
+            continue
+
+        # Pagamento XP
+        if 'PAG BOLETO BANCO XP S.A' in desc or 'PAG BOLETO BANCO XP' in desc:
+            indices_to_drop.add(idx)
+            continue
+
+        # Pagamento Nubank
+        if 'PIX QRS NU PAGAMENT' in desc:
+            indices_to_drop.add(idx)
+            continue
+
+    # --- Regra 3: Transferências internas entre Itaú e Bradesco ---
+    grouped = merged.groupby('_date_obj')
+    for date_val, group in grouped:
+        # Apenas as transações da data atual que ainda não foram marcadas para remoção
+        active_group = group[~group.index.isin(indices_to_drop)]
+        
+        itau_rows = active_group[active_group['ag./origem'] == 'ITAU'].copy()
+        bradesco_rows = active_group[active_group['ag./origem'] == 'BRAD'].copy()
+        
+        used_bradesco_indices = set()
+        
+        for i_idx, i_row in itau_rows.iterrows():
+            i_val = i_row['_value_float']
+            if round(i_val, 2) == 0.0:
+                continue
+            
+            # Procurar uma transação do Bradesco com valor oposto
+            for b_idx, b_row in bradesco_rows.iterrows():
+                if b_idx in used_bradesco_indices:
+                    continue
+                b_val = b_row['_value_float']
+                
+                # Se forem opostas (mesmo valor absoluto e sinal contrário)
+                if round(i_val + b_val, 2) == 0.0:
+                    indices_to_drop.add(i_idx)
+                    indices_to_drop.add(b_idx)
+                    used_bradesco_indices.add(b_idx)
+                    break
+
+    # 4. Remover as linhas indesejadas
+    merged_clean = merged.drop(index=indices_to_drop)
+
+    # 5. Ordenar por data (da mais antiga para a mais recente)
+    merged_clean = merged_clean.sort_values(by='_date_obj', ascending=True)
+
+    # 6. Remover colunas auxiliares
+    merged_clean = merged_clean.drop(columns=['_date_obj', '_value_float', '_desc_norm'])
+
+    return merged_clean
+
 
