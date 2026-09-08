@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import os
 
 # Determine the root directory dynamically
@@ -15,5 +15,6 @@ def Navbar():
         st.markdown("### 💼 Backoffice")
         st.page_link(os.path.join(ROOT_DIR, "pages", "regras.py"), label="Regras do Usuário", icon='📋')
         st.page_link(os.path.join(ROOT_DIR, "pages", "etl.py"), label="ETL", icon='⚙️')
+        st.page_link(os.path.join(ROOT_DIR, "pages", "price_tracker.py"), label="Monitor de Preços", icon='🏷️')
         # Main Script
     return
