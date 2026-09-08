@@ -1,35 +1,13 @@
 ﻿"""Serviço de gerenciamento de produtos e consulta de histórico de preços para o Streamlit."""
-import os
 import re
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-import yaml
+from typing import Dict, Any, Optional
 import pandas as pd
 import numpy as np
+from sqlalchemy import text
 from src.postgres import PostgresUploader
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-
-def get_products_yaml_path() -> Path:
-    """Descobre o caminho do arquivo products.yaml tanto no Windows quanto no Servidor."""
-    env_path = os.getenv("SCRAPER_PRODUCTS_YAML")
-    if env_path and Path(env_path).exists():
-        return Path(env_path)
-
-    # 1. Caminho relativo padrão (projetos irmãos: Projetos/scraper e Projetos/financas_pessoal_v2)
-    relative_path = ROOT_DIR.parent / "scraper" / "config" / "products.yaml"
-    if relative_path.exists():
-        return relative_path
-
-    # 2. Caminho padrão do servidor Linux
-    server_path = Path("/home/rodri/projects/scraper/config/products.yaml")
-    if server_path.exists():
-        return server_path
-
-    return relative_path
-
 def extract_asin(url: str) -> Optional[str]:
-    """Extrai o ASIN da URL da Amazon."""
+    """Extrai o código ASIN (10 caracteres alfanuméricos) da URL da Amazon."""
     patterns = [
         r"/(?:dp|gp/product)/([A-Z0-9]{10})",
         r"/product/([A-Z0-9]{10})",
@@ -41,56 +19,50 @@ def extract_asin(url: str) -> Optional[str]:
             return m.group(1).upper()
     return None
 
-def load_products_from_yaml() -> List[Dict[str, Any]]:
-    """Lê os produtos cadastrados no arquivo products.yaml."""
-    yaml_path = get_products_yaml_path()
-    if not yaml_path.exists():
-        return []
-    try:
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-            return data.get("products", [])
-    except Exception as e:
-        print(f"Erro ao ler products.yaml: {e}")
-        return []
-
-def add_product_to_yaml(name: str, url: str, category: str = "Geral", target_price: Optional[float] = None, active: bool = True) -> Dict[str, Any]:
-    """Adiciona um novo produto ao arquivo products.yaml."""
-    yaml_path = get_products_yaml_path()
-    products = load_products_from_yaml()
-
+def add_product_to_db(name: str, url: str, category: str = "Geral", is_active: bool = True) -> Dict[str, Any]:
+    """Cadastra ou atualiza o produto diretamente na tabela scrapers.amazon_products no PostgreSQL."""
     asin = extract_asin(url)
-    prod_id = re.sub(r"[^a-zA-Z0-9_]", "_", name.lower().strip())
-    if asin and not prod_id:
-        prod_id = f"prod_{asin.lower()}"
+    if not asin:
+        raise ValueError("Não foi possível identificar o código ASIN na URL informada.")
 
-    new_item = {
-        "id": prod_id[:30],
+    clean_url = f"https://www.amazon.com.br/dp/{asin}"
+    uploader = PostgresUploader()
+
+    query = text("""
+        INSERT INTO scrapers.amazon_products (asin, name, url, category, is_active, created_at)
+        VALUES (:asin, :name, :url, :category, :is_active, NOW())
+        ON CONFLICT (asin) DO UPDATE SET
+            name = EXCLUDED.name,
+            url = EXCLUDED.url,
+            category = EXCLUDED.category,
+            is_active = EXCLUDED.is_active;
+    """)
+
+    params = {
+        "asin": asin,
         "name": name.strip(),
-        "url": url.strip(),
+        "url": clean_url,
         "category": category.strip() if category else "Geral",
-        "target_price": float(target_price) if target_price else None,
-        "active": bool(active),
+        "is_active": is_active,
     }
 
-    # Verifica se a URL já existe para atualizar
-    existing_idx = next((i for i, p in enumerate(products) if p.get("url") == url.strip() or (asin and extract_asin(p.get("url", "")) == asin)), None)
-    if existing_idx is not None:
-        products[existing_idx] = new_item
-    else:
-        products.append(new_item)
+    with uploader.engine.begin() as conn:
+        conn.execute(query, params)
 
-    yaml_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(yaml_path, "w", encoding="utf-8") as f:
-        yaml.dump({"products": products}, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    return {"asin": asin, "name": name, "url": clean_url, "category": category}
 
-    return new_item
+def toggle_product_status(asin: str, is_active: bool):
+    """Ativa ou pausa o rastreamento de um produto no banco."""
+    uploader = PostgresUploader()
+    query = text("UPDATE scrapers.amazon_products SET is_active = :is_active WHERE asin = :asin;")
+    with uploader.engine.begin() as conn:
+        conn.execute(query, {"is_active": is_active, "asin": asin})
 
 def get_tracked_products_df() -> pd.DataFrame:
-    """Busca os produtos cadastrados no PostgreSQL (scrapers.amazon_products)."""
+    """Busca todos os produtos cadastrados no PostgreSQL (scrapers.amazon_products)."""
     try:
         uploader = PostgresUploader()
-        query = "SELECT asin, name, url, category, target_price, is_active, created_at FROM scrapers.amazon_products ORDER BY name ASC;"
+        query = "SELECT asin, name, url, category, is_active, created_at FROM scrapers.amazon_products ORDER BY name ASC;"
         df = uploader.query_to_df(query)
         return df
     except Exception as e:
@@ -118,7 +90,7 @@ def get_price_history_df(asin: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[float] = None) -> Dict[str, Any]:
-    """Calcula estatísticas de distribuição e avalia onde um determinado preço se posiciona."""
+    """Calcula estatísticas de distribuição e avalia a posição de um preço."""
     if df_history.empty or "price" not in df_history.columns:
         return {}
 
@@ -132,22 +104,21 @@ def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[fl
 
     eval_price = float(test_val) if test_val is not None and test_val > 0 else current_p
 
-    # Percentil: % dos preços históricos que foram MENORES que o preço avaliado
+    # Percentil: percentual de registros históricos que custaram MENOS que o preço avaliado
     percentile = float((prices < eval_price).mean() * 100.0)
 
-    # Classificação amigável
     if percentile <= 20.0:
-        recommendation = "🟢 Oportunidade Excepcional! Próximo à mínima histórica."
-        color = "green"
+        recommendation = "Oportunidade Excepcional! Próximo à mínima histórica."
+        badge = "🟢"
     elif percentile <= 45.0:
-        recommendation = "🟡 Bom Preço! Abaixo da média histórica."
-        color = "gold"
+        recommendation = "Bom Preço! Abaixo da média histórica."
+        badge = "🟡"
     elif percentile <= 75.0:
-        recommendation = "🟠 Preço Médio / Regular."
-        color = "orange"
+        recommendation = "Preço Médio / Regular."
+        badge = "🟠"
     else:
-        recommendation = "🔴 Preço Alto! Próximo à máxima histórica."
-        color = "red"
+        recommendation = "Preço Alto! Próximo à máxima histórica."
+        badge = "🔴"
 
     return {
         "min_price": min_p,
@@ -159,6 +130,5 @@ def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[fl
         "eval_price": eval_price,
         "percentile": percentile,
         "cheaper_than_pct": 100.0 - percentile,
-        "recommendation": recommendation,
-        "color": color,
+        "recommendation": f"{badge} {recommendation}",
     }
