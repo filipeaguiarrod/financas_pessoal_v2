@@ -1,4 +1,4 @@
-﻿"""Serviço de gerenciamento de produtos e consulta de histórico de preços para o Streamlit."""
+"""Serviço de gerenciamento de produtos e consulta de histórico de preços para o Streamlit."""
 import re
 from typing import Dict, Any, Optional
 import pandas as pd
@@ -89,6 +89,63 @@ def get_price_history_df(asin: str) -> pd.DataFrame:
         print(f"Erro ao consultar amazon_price_history: {e}")
         return pd.DataFrame()
 
+def get_products_summary_df() -> pd.DataFrame:
+    """Retorna visão consolidada de todos os produtos rastreados com métricas históricas e preço mais recente."""
+    try:
+        uploader = PostgresUploader()
+        query = """
+            WITH stats AS (
+                SELECT
+                    asin,
+                    MIN(price) AS min_price,
+                    AVG(price) AS mean_price,
+                    MAX(price) AS max_price,
+                    COUNT(*) AS total_samples
+                FROM scrapers.amazon_price_history
+                WHERE price IS NOT NULL
+                GROUP BY asin
+            ),
+            latest AS (
+                SELECT DISTINCT ON (asin)
+                    asin,
+                    price AS latest_price,
+                    scraped_at AS latest_scraped_at
+                FROM scrapers.amazon_price_history
+                WHERE price IS NOT NULL
+                ORDER BY asin, scraped_at DESC
+            )
+            SELECT
+                p.asin,
+                p.name,
+                p.category,
+                p.is_active,
+                p.url,
+                p.created_at,
+                s.min_price,
+                s.mean_price,
+                s.max_price,
+                COALESCE(s.total_samples, 0) AS total_samples,
+                l.latest_price,
+                l.latest_scraped_at
+            FROM scrapers.amazon_products p
+            LEFT JOIN stats s ON p.asin = s.asin
+            LEFT JOIN latest l ON p.asin = l.asin
+            ORDER BY p.name ASC;
+        """
+        df = uploader.query_to_df(query)
+        if not df.empty:
+            if "latest_scraped_at" in df.columns:
+                df["latest_scraped_at"] = pd.to_datetime(df["latest_scraped_at"])
+            for col in ["min_price", "mean_price", "max_price", "latest_price"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            if "total_samples" in df.columns:
+                df["total_samples"] = df["total_samples"].fillna(0).astype(int)
+        return df
+    except Exception as e:
+        print(f"Erro ao consultar resumo de produtos: {e}")
+        return pd.DataFrame()
+
 def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[float] = None) -> Dict[str, Any]:
     """Calcula estatísticas de distribuição e avalia a posição de um preço."""
     if df_history.empty or "price" not in df_history.columns:
@@ -108,17 +165,17 @@ def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[fl
     percentile = float((prices < eval_price).mean() * 100.0)
 
     if percentile <= 20.0:
-        recommendation = "Oportunidade Excepcional! Próximo à mínima histórica."
-        badge = "🟢"
+        recommendation = "Oportunidade Excepcional — Próximo à mínima histórica"
+        badge = "Excelente"
     elif percentile <= 45.0:
-        recommendation = "Bom Preço! Abaixo da média histórica."
-        badge = "🟡"
+        recommendation = "Bom Preço — Abaixo da média histórica"
+        badge = "Bom"
     elif percentile <= 75.0:
-        recommendation = "Preço Médio / Regular."
-        badge = "🟠"
+        recommendation = "Preço Médio — Faixa regular"
+        badge = "Regular"
     else:
-        recommendation = "Preço Alto! Próximo à máxima histórica."
-        badge = "🔴"
+        recommendation = "Preço Alto — Próximo à máxima histórica"
+        badge = "Alto"
 
     return {
         "min_price": min_p,
@@ -130,5 +187,7 @@ def calculate_distribution_stats(df_history: pd.DataFrame, test_val: Optional[fl
         "eval_price": eval_price,
         "percentile": percentile,
         "cheaper_than_pct": 100.0 - percentile,
-        "recommendation": f"{badge} {recommendation}",
+        "recommendation": recommendation,
+        "status_tag": badge,
     }
+
