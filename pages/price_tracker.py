@@ -95,6 +95,22 @@ st.divider()
 # ==============================================================================
 st.subheader("Produtos Monitorados")
 
+def _style_price_tracker_table(data: pd.DataFrame) -> pd.DataFrame:
+    """Aplica formatação condicional apenas na cor e peso da fonte do Último Preço.
+    - Vermelho negrito se último preço estiver acima da média.
+    - Verde negrito se último preço estiver abaixo da média.
+    """
+    styles = pd.DataFrame("", index=data.index, columns=data.columns)
+    for idx, row in data.iterrows():
+        latest = row.get("latest_price")
+        mean = row.get("mean_price")
+        if pd.notna(latest) and pd.notna(mean):
+            if latest > mean:
+                styles.loc[idx, "latest_price"] = "color: #dc2626; font-weight: bold;"
+            elif latest < mean:
+                styles.loc[idx, "latest_price"] = "color: #16a34a; font-weight: bold;"
+    return styles
+
 df_summary = get_products_summary_df()
 
 if df_summary.empty:
@@ -104,8 +120,72 @@ else:
     df_display["status_label"] = df_display["is_active"].apply(lambda x: "Ativo" if x else "Pausado")
     df_display["latest_date_str"] = df_display["latest_scraped_at"].dt.strftime("%d/%m/%Y %H:%M").fillna("Sem coletas")
 
-    st.dataframe(
-        df_display[[
+    # Controles de Filtros
+    col_f1, col_f2, col_f3, col_f4 = st.columns([2, 1.2, 1, 1.2])
+
+    with col_f1:
+        filter_name = st.text_input(
+            "Buscar por descrição",
+            placeholder="Digite para filtrar por nome...",
+            key="filter_tracker_name"
+        )
+
+    with col_f2:
+        available_categories = sorted([c for c in df_display["category"].dropna().unique() if str(c).strip()])
+        filter_category = st.multiselect(
+            "Categoria",
+            options=available_categories,
+            placeholder="Todas",
+            key="filter_tracker_cat"
+        )
+
+    with col_f3:
+        filter_status = st.selectbox(
+            "Status",
+            options=["Todos", "Ativos", "Pausados"],
+            key="filter_tracker_status"
+        )
+
+    with col_f4:
+        filter_price_status = st.selectbox(
+            "Situação do Preço",
+            options=["Todos", "Abaixo da Média (Promoção)", "Acima da Média"],
+            key="filter_tracker_price_status"
+        )
+
+    # Aplicação dos Filtros
+    filtered_df = df_display.copy()
+
+    if filter_name:
+        filtered_df = filtered_df[filtered_df["name"].str.contains(filter_name, case=False, na=False)]
+
+    if filter_category:
+        filtered_df = filtered_df[filtered_df["category"].isin(filter_category)]
+
+    if filter_status == "Ativos":
+        filtered_df = filtered_df[filtered_df["is_active"] == True]
+    elif filter_status == "Pausados":
+        filtered_df = filtered_df[filtered_df["is_active"] == False]
+
+    if filter_price_status == "Abaixo da Média (Promoção)":
+        filtered_df = filtered_df[
+            filtered_df["latest_price"].notna() &
+            filtered_df["mean_price"].notna() &
+            (filtered_df["latest_price"] < filtered_df["mean_price"])
+        ]
+    elif filter_price_status == "Acima da Média":
+        filtered_df = filtered_df[
+            filtered_df["latest_price"].notna() &
+            filtered_df["mean_price"].notna() &
+            (filtered_df["latest_price"] > filtered_df["mean_price"])
+        ]
+
+    st.caption(f"Exibindo **{len(filtered_df)}** de **{len(df_display)}** produtos monitorados.")
+
+    if filtered_df.empty:
+        st.warning("Nenhum produto encontrado com os filtros selecionados.")
+    else:
+        df_table = filtered_df[[
             "name",
             "category",
             "status_label",
@@ -115,21 +195,26 @@ else:
             "latest_price",
             "latest_date_str",
             "total_samples"
-        ]],
-        column_config={
-            "name": st.column_config.TextColumn("Descrição", width="large"),
-            "category": st.column_config.TextColumn("Categoria", width="small"),
-            "status_label": st.column_config.TextColumn("Status", width="small"),
-            "min_price": st.column_config.NumberColumn("Mínima", format="R$ %.2f"),
-            "mean_price": st.column_config.NumberColumn("Média", format="R$ %.2f"),
-            "max_price": st.column_config.NumberColumn("Máxima", format="R$ %.2f"),
-            "latest_price": st.column_config.NumberColumn("Último Preço", format="R$ %.2f"),
-            "latest_date_str": st.column_config.TextColumn("Última Coleta", width="medium"),
-            "total_samples": st.column_config.NumberColumn("Total Coletas", format="%d"),
-        },
-        use_container_width=True,
-        hide_index=True
-    )
+        ]].reset_index(drop=True)
+
+        styled_df = df_table.style.apply(_style_price_tracker_table, axis=None)
+
+        st.dataframe(
+            styled_df,
+            column_config={
+                "name": st.column_config.TextColumn("Descrição", width="large"),
+                "category": st.column_config.TextColumn("Categoria", width="small"),
+                "status_label": st.column_config.TextColumn("Status", width="small"),
+                "min_price": st.column_config.NumberColumn("Mínima", format="R$ %.2f"),
+                "mean_price": st.column_config.NumberColumn("Média", format="R$ %.2f"),
+                "max_price": st.column_config.NumberColumn("Máxima", format="R$ %.2f"),
+                "latest_price": st.column_config.NumberColumn("Último Preço", format="R$ %.2f"),
+                "latest_date_str": st.column_config.TextColumn("Última Coleta", width="medium"),
+                "total_samples": st.column_config.NumberColumn("Total Coletas", format="%d"),
+            },
+            use_container_width=True,
+            hide_index=True
+        )
 
 st.divider()
 
