@@ -4,6 +4,7 @@ from src.price_tracker_service import (
     extract_asin,
     calculate_distribution_stats,
     get_products_summary_df,
+    resolve_product_url,
 )
 
 def test_extract_asin():
@@ -18,6 +19,34 @@ def test_extract_asin():
     assert extract_asin(url3) == "B07YXF387Y"
     assert extract_asin(url4) == "B07YXF387Y"
     assert extract_asin(url_invalid) is None
+
+def test_resolve_product_url():
+    # Full valid URL provided
+    assert resolve_product_url(
+        url="https://www.amazon.com.br/dp/B07YXF387Y",
+        asin="B07YXF387Y"
+    ) == "https://www.amazon.com.br/dp/B07YXF387Y"
+
+    # Fallback to ASIN when URL is empty or None
+    assert resolve_product_url(
+        url=None,
+        asin="B07YXF387Y"
+    ) == "https://www.amazon.com.br/dp/B07YXF387Y"
+
+    assert resolve_product_url(
+        url="",
+        asin="b07yxf387y"
+    ) == "https://www.amazon.com.br/dp/B07YXF387Y"
+
+    # Fallback to ASIN when URL is not a valid http link
+    assert resolve_product_url(
+        url="not_a_url",
+        asin="B07YXF387Y"
+    ) == "https://www.amazon.com.br/dp/B07YXF387Y"
+
+    # Both empty
+    assert resolve_product_url(url=None, asin=None) == ""
+    assert resolve_product_url(url="", asin="") == ""
 
 def test_calculate_distribution_stats():
     # Empty dataframe
@@ -51,7 +80,7 @@ def test_get_products_summary_df_structure():
     assert isinstance(df, pd.DataFrame)
     if not df.empty:
         required_cols = [
-            "asin", "name", "category", "is_active",
+            "asin", "name", "category", "is_active", "url",
             "min_price", "mean_price", "max_price",
             "latest_price", "latest_scraped_at", "total_samples"
         ]

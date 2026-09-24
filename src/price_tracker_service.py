@@ -19,6 +19,18 @@ def extract_asin(url: str) -> Optional[str]:
             return m.group(1).upper()
     return None
 
+def resolve_product_url(url: Optional[str] = None, asin: Optional[str] = None) -> str:
+    """Retorna uma URL válida para o produto, usando a URL cadastrada ou fallback canônico por ASIN."""
+    if url is not None and not pd.isna(url):
+        url_str = str(url).strip()
+        if url_str.startswith("http://") or url_str.startswith("https://"):
+            return url_str
+    if asin is not None and not pd.isna(asin):
+        asin_str = str(asin).strip().upper()
+        if asin_str:
+            return f"https://www.amazon.com.br/dp/{asin_str}"
+    return ""
+
 def add_product_to_db(name: str, url: str, category: str = "Geral", is_active: bool = True) -> Dict[str, Any]:
     """Cadastra ou atualiza o produto diretamente na tabela scrapers.amazon_products no PostgreSQL."""
     asin = extract_asin(url)
