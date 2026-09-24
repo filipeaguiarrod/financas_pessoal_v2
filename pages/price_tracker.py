@@ -11,6 +11,7 @@ from src.price_tracker_service import (
     get_price_history_df,
     get_products_summary_df,
     calculate_distribution_stats,
+    resolve_product_url,
 )
 
 st.set_page_config(page_title="Monitor de Preços", layout="wide")
@@ -117,6 +118,12 @@ if df_summary.empty:
     st.info("Nenhum produto cadastrado no banco de dados para monitoramento.")
 else:
     df_display = df_summary.copy()
+    if "url" not in df_display.columns:
+        df_display["url"] = ""
+    df_display["url"] = df_display.apply(
+        lambda r: resolve_product_url(r.get("url"), r.get("asin")),
+        axis=1
+    )
     df_display["status_label"] = df_display["is_active"].apply(lambda x: "Ativo" if x else "Pausado")
     df_display["latest_date_str"] = df_display["latest_scraped_at"].dt.strftime("%d/%m/%Y %H:%M").fillna("Sem coletas")
 
@@ -142,7 +149,8 @@ else:
     with col_f3:
         filter_status = st.selectbox(
             "Status",
-            options=["Todos", "Ativos", "Pausados"],
+            options=["Ativos", "Todos", "Pausados"],
+            index=0,
             key="filter_tracker_status"
         )
 
@@ -187,6 +195,7 @@ else:
     else:
         df_table = filtered_df[[
             "name",
+            "url",
             "category",
             "status_label",
             "min_price",
@@ -203,6 +212,7 @@ else:
             styled_df,
             column_config={
                 "name": st.column_config.TextColumn("Descrição", width="large"),
+                "url": st.column_config.LinkColumn("Link Amazon", display_text="Abrir na Amazon ↗", width="small"),
                 "category": st.column_config.TextColumn("Categoria", width="small"),
                 "status_label": st.column_config.TextColumn("Status", width="small"),
                 "min_price": st.column_config.NumberColumn("Mínima", format="R$ %.2f"),
@@ -242,6 +252,10 @@ if not df_summary.empty:
     else:
         selected_prod = prod_options[selected_label]
         asin = selected_prod["asin"]
+        prod_link = resolve_product_url(selected_prod.get("url"), asin)
+        if prod_link:
+            st.markdown(f"[🔗 Abrir '{selected_prod['name']}' na Amazon ↗]({prod_link})")
+
         df_history = get_price_history_df(asin)
 
         if df_history.empty:
