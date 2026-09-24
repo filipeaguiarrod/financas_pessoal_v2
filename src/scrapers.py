@@ -5,57 +5,137 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def parse_shoppe(html_string: str) -> pd.DataFrame:
+import re
+
+def extract_shoppe_data(html_string: str) -> pd.DataFrame:
+    """Extrai os dados de compras da Shopee a partir de HTML usando heurísticas resilientes."""
     compras_shoppe = {'descricao': [], 'loja': [], 'preco': [], 'status': [], 'url_detalhes': []}
 
-    logging.info("Iniciando a extração de dados do Shopee...")
+    if not html_string or not str(html_string).strip():
+        return pd.DataFrame(compras_shoppe)
 
-    # Parse the HTML content
+    logging.info("Iniciando a extração de dados do Shopee...")
     soup = BeautifulSoup(html_string, 'html.parser')
 
-    logging.info("HTML do Shopee parseado com sucesso. Extraindo informações...")
+    # Identificação dos cards de compra (camada 1: classes novas e legadas)
+    div_elements = soup.find_all('div', class_='R5DdXs')
+    if not div_elements:
+        div_elements = soup.find_all('div', class_='YL_VlX')
 
-    # Lista de compras 
-    div_elements = soup.find_all('div', class_='YL_VlX')
+    # Camada 2: busca por estrutura de links de pedidos (/user/purchase/order/ ou /user/purchase/cancellation/)
+    if not div_elements:
+        order_links = soup.find_all('a', href=re.compile(r'/user/purchase/(?:order|cancellation)/'))
+        seen_parents = set()
+        for link in order_links:
+            parent = link
+            for _ in range(8):
+                parent = parent.parent
+                if not parent:
+                    break
+                if parent.find('section') and ('Total do Pedido' in parent.text or 'Total' in parent.text):
+                    if id(parent) not in seen_parents:
+                        seen_parents.add(id(parent))
+                        div_elements.append(parent)
+                    break
 
     logging.info(f"Encontrados {len(div_elements)} elementos de compra no Shopee. Processando cada um...")
 
-    # Extrai os resultados
     for div in div_elements:
-        
-        # Extrações seguras: verifica se a tag existe antes de extrair .text
-        span_desc = div.find('span', class_='DWVWOJ')
-        descricao = span_desc.text.strip() if span_desc else "Não encontrada"
-        
-        div_loja = div.find('div', class_='UDaMW3')
-        loja = div_loja.text.strip() if div_loja else "Não encontrada"
-        
-        div_preco = div.find('div', class_='t7TQaf')
-        preco = div_preco.text.strip() if div_preco else "Não encontrado"
-        
-        div_status = div.find('div', class_="bv3eJE")
-        status = div_status.text.strip() if div_status else "Não encontrado"
-        
-        # Correção da URL: busca o novo padrão ou faz fallback para o antigo
-        link_detalhes = div.find('a', attrs={'aria-label': 'Ir para Detalhes do Produto'})
-        if not link_detalhes:
-            # Caso não ache pelo aria-label, tenta pela classe antiga
-            link_detalhes = div.find('a', class_="lXbYsi")
-            
-        if link_detalhes and link_detalhes.has_attr('href'):
-            url_detalhes = "https://shopee.com.br" + link_detalhes['href']
-        else:
-            url_detalhes = "Sem link disponível"
+        try:
+            # 1. Descrição do produto
+            span_desc = div.find('span', class_=['LNTevg', 'DWVWOJ'])
+            if not span_desc:
+                desc_container = div.find('div', class_='wHltjF')
+                if desc_container:
+                    span_desc = desc_container.find('span') or desc_container
 
-        # Adiciona os dados ao dicionário
-        compras_shoppe['descricao'].append(descricao)
-        compras_shoppe['loja'].append(loja)
-        compras_shoppe['preco'].append(preco)
-        compras_shoppe['status'].append(status)
-        compras_shoppe['url_detalhes'].append(url_detalhes)
+            if not span_desc:
+                link_prod = div.find('a', attrs={'aria-label': 'Ir para Detalhes do Produto'}) or div.find('a', href=re.compile(r'/user/purchase/order/'))
+                if link_prod:
+                    img = link_prod.find('img', alt=True)
+                    if img and img.get('alt') and img['alt'] != 'Imagem do produto':
+                        descricao = img['alt'].strip()
+                    else:
+                        textos = [t.strip() for t in link_prod.stripped_strings if len(t.strip()) > 10 and not t.strip().startswith('R$')]
+                        descricao = textos[0] if textos else "Não encontrada"
+                else:
+                    descricao = "Não encontrada"
+            else:
+                descricao = span_desc.text.strip()
 
-    logging.info(f"Compras extraidas com sucesso: {len(compras_shoppe['descricao'])} itens.")
-    
+            # 2. Nome da loja
+            div_loja = div.find('div', class_=['QM3Kte', 'UDaMW3'])
+            if not div_loja:
+                shop_section = div.find('section')
+                if shop_section:
+                    shop_link = shop_section.find('a', href=re.compile(r'entryPoint=OrderDetail'))
+                    if shop_link and shop_link.parent:
+                        for sibling in shop_link.parent.find_all(['div', 'span']):
+                            txt = sibling.text.strip()
+                            if txt and txt.lower() not in ['chat', 'ver página da loja', 'lojas oficiais', 'preferred seller']:
+                                div_loja = sibling
+                                break
+            loja = div_loja.text.strip() if div_loja else "Não encontrada"
+
+            # 3. Preço
+            div_preco = div.find('div', class_=['XTSMWc', 't7TQaf'])
+            if not div_preco:
+                total_label = div.find(lambda el: el.name == 'label' and 'total do pedido' in el.text.lower())
+                if total_label and total_label.parent:
+                    val_el = total_label.parent.find(lambda el: 'R$' in el.text)
+                    if val_el:
+                        div_preco = val_el
+            if not div_preco:
+                item_price = div.find('span', class_='Z0dmZq') or div.find('div', class_='V98FFV')
+                if item_price:
+                    div_preco = item_price
+
+            if div_preco:
+                preco_match = re.search(r'R\$\s*[\d\.,]+', div_preco.text)
+                preco = preco_match.group(0).replace('\xa0', ' ').strip() if preco_match else div_preco.text.strip()
+            else:
+                match_total = re.search(r'Total do Pedido:\s*(R\$\s*[\d\.,]+)', div.text, re.IGNORECASE)
+                if match_total:
+                    preco = match_total.group(1).replace('\xa0', ' ').strip()
+                else:
+                    preco = "Não encontrado"
+
+            # 4. Status do pedido
+            div_status = div.find('div', class_=['tGTmka', 'bv3eJE'])
+            if not div_status:
+                status_regex = re.compile(r'\b(Preparando|A caminho|Finalizado|Cancelado|Reembolso|A Pagar|Pedido entregue)\b', re.IGNORECASE)
+                match_status = status_regex.search(div.text)
+                status = match_status.group(0).capitalize() if match_status else "Não encontrado"
+            else:
+                status = div_status.text.strip()
+
+            # 5. Link para detalhes
+            link_detalhes = div.find('a', attrs={'aria-label': 'Ir para Detalhes do Produto'})
+            if not link_detalhes:
+                link_detalhes = div.find('a', class_="lXbYsi")
+            if not link_detalhes:
+                link_detalhes = div.find('a', href=re.compile(r'/user/purchase/(?:order|cancellation)/\d+'))
+
+            if link_detalhes and link_detalhes.has_attr('href'):
+                href = link_detalhes['href']
+                url_detalhes = "https://shopee.com.br" + href if href.startswith('/') else href
+            else:
+                url_detalhes = "Sem link disponível"
+
+            compras_shoppe['descricao'].append(descricao)
+            compras_shoppe['loja'].append(loja)
+            compras_shoppe['preco'].append(preco)
+            compras_shoppe['status'].append(status)
+            compras_shoppe['url_detalhes'].append(url_detalhes)
+        except Exception as e_item:
+            logging.warning(f"Erro ao processar item individual da Shopee: {e_item}")
+
+    logging.info(f"Compras Shopee extraídas com sucesso: {len(compras_shoppe['descricao'])} itens.")
+    return pd.DataFrame(compras_shoppe)
+
+
+def parse_shoppe(html_string: str) -> pd.DataFrame:
+    df = extract_shoppe_data(html_string)
     config = {
         "descricao": st.column_config.TextColumn("Descrição", width="medium"),
         "loja": st.column_config.TextColumn("Loja", width="medium"),
@@ -63,52 +143,116 @@ def parse_shoppe(html_string: str) -> pd.DataFrame:
         "status": st.column_config.TextColumn("Status", width="small"),
         "url_detalhes": st.column_config.LinkColumn("Link para detalhes", width="large")
     }
-        
-    # Create a DataFrame from the dictionary
-    df = pd.DataFrame(compras_shoppe)
     return st.dataframe(df, column_config=config, row_height=100, hide_index=True)
 
 
-def parse_amazon(html_string:str) -> pd.DataFrame:
-        
-    compras_amazon = {'descricao':[], 'data':[], 'preco':[], 'url_detalhes':[]}
-    # Parse the HTML content
+def extract_amazon_data(html_string: str) -> pd.DataFrame:
+    """Extrai os dados de compras da Amazon a partir de HTML usando heurísticas resilientes."""
+    compras_amazon = {'descricao': [], 'data': [], 'preco': [], 'url_detalhes': []}
+
+    if not html_string or not str(html_string).strip():
+        return pd.DataFrame(compras_amazon)
+
+    logging.info("Iniciando a extração de dados da Amazon...")
     soup = BeautifulSoup(html_string, 'html.parser')
 
-    # Find all div elements with class "YL_VlX"
-    div_elements = soup.find_all('div', class_="order-card js-order-card")
+    # Identificação dos cards de pedido
+    div_elements = soup.find_all('div', class_="order-card")
+    if not div_elements:
+        div_elements = soup.find_all('div', class_="js-order-card")
+    if not div_elements:
+        div_elements = soup.find_all('div', attrs={'data-csa-c-content-id': 'amzn1.yourorders.order-card'})
+    if not div_elements:
+        headers = soup.find_all('div', class_='order-header')
+        div_elements = [h.parent for h in headers if h.parent]
 
-    # Print the results
+    logging.info(f"Encontrados {len(div_elements)} cards de pedido da Amazon. Processando...")
+
     for div in div_elements:
-
         try:
-            data, preco = div.find_all('span',class_='a-size-base a-color-secondary aok-break-word')
-            data,preco = data.text, preco.text.replace('\xa0',' ')
-        except:
-            data,preco,_ = div.find_all('span',class_='a-color-secondary value')
-            data,preco = data.text.strip(),preco.text.strip()
+            # 1. Data e Preço do cabeçalho
+            data = "Não encontrada"
+            preco = "Não encontrado"
 
-        
-        url,_,_,descricao = div.find_all('a',class_="a-link-normal")[:4]
-        url,descricao = "https://www.amazon.com.br"+url['href'],descricao.text.strip()
+            header_items = div.find_all('li', class_='order-header__header-list-item') or div.find_all('div', class_='a-column')
+            for item in header_items:
+                label = item.find('span', class_='a-color-secondary')
+                if label:
+                    label_text = label.text.strip().lower()
+                    if 'pedido realizado' in label_text or 'data' in label_text:
+                        val = item.find('span', class_='aok-break-word') or item.find_all('span', class_='a-color-secondary')[-1]
+                        if val and val != label:
+                            data = val.text.strip()
+                    elif 'total' in label_text:
+                        val = item.find('span', class_='aok-break-word') or item.find_all('span', class_='a-color-secondary')[-1]
+                        if val and val != label:
+                            preco = val.text.strip().replace('\xa0', ' ')
 
-        # Append dicionario:
-        compras_amazon['data'].append(data)
-        compras_amazon['preco'].append(preco)
-        compras_amazon['url_detalhes'].append(url)
-        compras_amazon['descricao'].append(descricao)
+            if data == "Não encontrada" or preco == "Não encontrado":
+                container = div.find('div', class_='order-header') or div
+                spans = container.find_all('span', class_=['a-size-base', 'a-color-secondary', 'value'])
+                for sp in spans:
+                    sp_text = sp.text.strip().replace('\xa0', ' ')
+                    if preco == "Não encontrado" and re.search(r'R\$\s*[\d\.,]+', sp_text):
+                        preco = sp_text
+                    elif data == "Não encontrada" and re.search(r'\d{1,2}\s+de\s+[a-zçA-Z]+\s+de\s+\d{4}', sp_text):
+                        data = sp_text
 
-    logging.info(f"Compras extraidas com sucesso: {compras_amazon}")
+            # 2. Produtos do pedido
+            product_titles = div.find_all('div', class_='yohtmlc-product-title')
+            found_products = []
 
+            if product_titles:
+                for p_div in product_titles:
+                    a_elem = p_div.find('a')
+                    if a_elem and a_elem.text.strip():
+                        desc = a_elem.text.strip()
+                        href = a_elem.get('href', '')
+                        url = "https://www.amazon.com.br" + href if href.startswith('/') else href
+                        found_products.append((desc, url))
+
+            if not found_products:
+                dp_links = div.find_all('a', href=re.compile(r'/dp/[A-Z0-9]+'))
+                seen_urls = set()
+                for a_link in dp_links:
+                    desc = a_link.text.strip()
+                    href = a_link.get('href', '')
+                    clean_href = href.split('?')[0] if href else ''
+                    if clean_href in seen_urls:
+                        continue
+                    if desc and len(desc) > 3:
+                        seen_urls.add(clean_href)
+                        url = "https://www.amazon.com.br" + href if href.startswith('/') else href
+                        found_products.append((desc, url))
+
+            if not found_products:
+                details_link = div.find('a', href=re.compile(r'/order-details'))
+                href = details_link.get('href', '') if details_link else ''
+                url = "https://www.amazon.com.br" + href if href.startswith('/') else (href or "Sem link disponível")
+                found_products.append(("Item sem descrição", url))
+
+            for desc, url in found_products:
+                compras_amazon['descricao'].append(desc)
+                compras_amazon['data'].append(data)
+                compras_amazon['preco'].append(preco)
+                compras_amazon['url_detalhes'].append(url)
+
+        except Exception as e_item:
+            logging.warning(f"Erro ao processar pedido individual da Amazon: {e_item}")
+
+    logging.info(f"Compras Amazon extraídas com sucesso: {len(compras_amazon['descricao'])} itens.")
+    return pd.DataFrame(compras_amazon)
+
+
+def parse_amazon(html_string: str) -> pd.DataFrame:
+    df = extract_amazon_data(html_string)
     config = {
-    "descricao": st.column_config.TextColumn("Descrição", width="medium"),
-    "data": st.column_config.TextColumn("Data", width="medium"),
-    "preco": st.column_config.TextColumn("Preço", width="small"),
-    "url_detalhes": st.column_config.LinkColumn("Link para detalhes", width="large")
-            }
-    df = pd.DataFrame(compras_amazon)
-
-    return st.dataframe(df, column_config=config,row_height=100,hide_index=True)
+        "descricao": st.column_config.TextColumn("Descrição", width="medium"),
+        "data": st.column_config.TextColumn("Data", width="medium"),
+        "preco": st.column_config.TextColumn("Preço", width="small"),
+        "url_detalhes": st.column_config.LinkColumn("Link para detalhes", width="large")
+    }
+    return st.dataframe(df, column_config=config, row_height=100, hide_index=True)
 
 
 def parse_mercadolivre(html_string: str) -> pd.DataFrame:
