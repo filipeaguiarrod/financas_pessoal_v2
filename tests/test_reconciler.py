@@ -155,3 +155,43 @@ def test_to_sheets_tsv():
     ])
     tsv = to_sheets_tsv(df)
     assert "Restaurante\t01/09/2026\t99FOOD\t54,14\n" in tsv
+
+
+def test_reconciliation_financial_metrics_matching():
+    df_sheets = pd.DataFrame([
+        {'categoria': 'FERRAMENTAS', 'Data': '17 ago.', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
+        {'categoria': None, 'Data': '18 set.', 'Estabelecimento': 'IFD*TMC COMERCIO DE PI', 'Valor': 130.43},
+    ])
+    df_fatura = pd.DataFrame([
+        {'categoria': 'Outros', 'Data': '17/08/2026', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
+        {'categoria': 'RESTAURANTE', 'Data': '18/09/2026', 'Estabelecimento': 'IFD*TMC COMERCIO DE PI', 'Valor': 130.43},
+        {'categoria': 'RESTAURANTE', 'Data': '24/09/2026', 'Estabelecimento': 'KZEN SUSHI', 'Valor': 442.0},
+    ])
+
+    df_res, stats = reconcile_transactions(df_sheets, df_fatura, default_year=2026)
+
+    assert stats['valor_antigo'] == 178.47
+    assert stats['valor_fatura'] == 620.47
+    assert stats['valor_novo'] == 620.47
+    assert stats['diff_valor'] == 442.0
+    assert stats['diff_fatura'] == 0.0
+    assert stats['bate_com_fatura'] is True
+
+
+def test_reconciliation_financial_metrics_divergence():
+    # Sheets possui um item extra que não está na fatura
+    df_sheets = pd.DataFrame([
+        {'categoria': 'FERRAMENTAS', 'Data': '17 ago.', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
+        {'categoria': 'EXTRA', 'Data': '01 set.', 'Estabelecimento': 'COMPRA ANTIGA', 'Valor': 50.0},
+    ])
+    df_fatura = pd.DataFrame([
+        {'categoria': 'Outros', 'Data': '17/08/2026', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
+    ])
+
+    df_res, stats = reconcile_transactions(df_sheets, df_fatura, default_year=2026)
+
+    assert stats['valor_antigo'] == 98.04
+    assert stats['valor_fatura'] == 48.04
+    assert stats['valor_novo'] == 98.04
+    assert stats['diff_fatura'] == 50.0
+    assert stats['bate_com_fatura'] is False

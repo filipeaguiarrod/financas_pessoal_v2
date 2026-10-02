@@ -62,28 +62,22 @@ if sheets_text.strip():
 st.subheader("2. Fatura Nova / Fechada")
 fatura_source_type = st.radio(
     "Origem da fatura nova:",
-    ["Upload de Arquivo (XP / Nubank)", "Colar Texto / Tabela Classificada"],
+    ["Upload de Arquivo (Fatura Nubank / XP)", "Colar Texto / Tabela Classificada"],
     horizontal=True
 )
 
 df_fatura = None
-if fatura_source_type == "Upload de Arquivo (XP / Nubank)":
-    bank_type = st.selectbox("Banco / Instituição", ["XP Investimentos", "Nubank"])
-    uploaded_file = st.file_uploader(f"Arquivo da fatura ({bank_type})", type=['csv'])
+if fatura_source_type.startswith("Upload de Arquivo"):
+    uploaded_file = st.file_uploader("Arquivo da fatura (.csv — Nubank ou XP Investimentos)", type=['csv'])
 
     if uploaded_file is not None:
         try:
-            if bank_type == "XP Investimentos":
-                _, xp = credit_card.transform_xp(uploaded_file)
-                with st.spinner("Classificando fatura XP..."):
-                    df_fatura = credit_card.classify_xp(xp)
-            elif bank_type == "Nubank":
-                nu = credit_card.transform_nubank(uploaded_file)
-                with st.spinner("Classificando fatura Nubank..."):
-                    df_fatura = credit_card.classify_complete(nu)
+            with st.spinner("Lendo e classificando fatura..."):
+                invoice = credit_card.process_credit_card_invoice(uploaded_file)
+                df_fatura = credit_card.classify_invoice(invoice.df)
 
             if df_fatura is not None:
-                st.success(f"{len(df_fatura)} transações carregadas e classificadas da fatura.")
+                st.success(f"{len(df_fatura)} transações carregadas e classificadas da fatura ({invoice.bank_name}).")
         except Exception as e:
             st.error(f"Erro ao processar fatura: {e}")
 else:
@@ -123,7 +117,37 @@ if 'reconciled_result' in st.session_state:
 
     st.subheader("Resultado da Conciliação")
 
-    # Métricas resumidas limpas
+    def format_currency(val: float) -> str:
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    val_antigo = stats.get('valor_antigo', 0.0)
+    val_fatura = stats.get('valor_fatura', 0.0)
+    val_novo = stats.get('valor_novo', 0.0)
+    diff_valor = stats.get('diff_valor', 0.0)
+    diff_fatura = stats.get('diff_fatura', 0.0)
+    bate_com_fatura = stats.get('bate_com_fatura', True)
+
+    # Linha 1: Conferência Financeira
+    st.markdown("##### 💰 Conferência de Valores")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Base Anterior (Sheets)", format_currency(val_antigo))
+    m2.metric("Fatura da Operadora", format_currency(val_fatura))
+    delta_str = f"{'+' if diff_valor >= 0 else ''}{format_currency(diff_valor)}"
+    m3.metric("Total Conciliado Final", format_currency(val_novo), delta=delta_str if diff_valor != 0 else None)
+
+    if bate_com_fatura:
+        m4.metric("Conferência da Fatura", "Bateu 100% ✅")
+        st.success("✅ **Fatura conferida com sucesso!** O total conciliado fecha perfeitamente com a fatura da operadora.")
+    else:
+        diff_str = format_currency(abs(diff_fatura))
+        m4.metric("Conferência da Fatura", f"Divergência: {diff_str}", delta=f"{diff_fatura:+.2f}", delta_color="inverse")
+        if diff_fatura > 0:
+            st.warning(f"⚠️ **Atenção:** O total conciliado está **{diff_str} maior** que a fatura da operadora. Verifique se há compras manuais ou itens extras na planilha que não pertencem a esta fatura.")
+        else:
+            st.warning(f"⚠️ **Atenção:** O total conciliado está **{diff_str} menor** que a fatura da operadora. Verifique se todas as transações da fatura foram importadas.")
+
+    # Linha 2: Quantidades de Lançamentos
+    st.markdown("##### 📊 Quantidade de Lançamentos")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Final", stats.get('total', len(df_reconciled)))
     c2.metric("Mantidas (Sheets)", stats.get('mantidos', 0))
