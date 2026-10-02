@@ -117,7 +117,37 @@ if 'reconciled_result' in st.session_state:
 
     st.subheader("Resultado da Conciliação")
 
-    # Métricas resumidas limpas
+    def format_currency(val: float) -> str:
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    val_antigo = stats.get('valor_antigo', 0.0)
+    val_fatura = stats.get('valor_fatura', 0.0)
+    val_novo = stats.get('valor_novo', 0.0)
+    diff_valor = stats.get('diff_valor', 0.0)
+    diff_fatura = stats.get('diff_fatura', 0.0)
+    bate_com_fatura = stats.get('bate_com_fatura', True)
+
+    # Linha 1: Conferência Financeira
+    st.markdown("##### 💰 Conferência de Valores")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Base Anterior (Sheets)", format_currency(val_antigo))
+    m2.metric("Fatura da Operadora", format_currency(val_fatura))
+    delta_str = f"{'+' if diff_valor >= 0 else ''}{format_currency(diff_valor)}"
+    m3.metric("Total Conciliado Final", format_currency(val_novo), delta=delta_str if diff_valor != 0 else None)
+
+    if bate_com_fatura:
+        m4.metric("Conferência da Fatura", "Bateu 100% ✅")
+        st.success("✅ **Fatura conferida com sucesso!** O total conciliado fecha perfeitamente com a fatura da operadora.")
+    else:
+        diff_str = format_currency(abs(diff_fatura))
+        m4.metric("Conferência da Fatura", f"Divergência: {diff_str}", delta=f"{diff_fatura:+.2f}", delta_color="inverse")
+        if diff_fatura > 0:
+            st.warning(f"⚠️ **Atenção:** O total conciliado está **{diff_str} maior** que a fatura da operadora. Verifique se há compras manuais ou itens extras na planilha que não pertencem a esta fatura.")
+        else:
+            st.warning(f"⚠️ **Atenção:** O total conciliado está **{diff_str} menor** que a fatura da operadora. Verifique se todas as transações da fatura foram importadas.")
+
+    # Linha 2: Quantidades de Lançamentos
+    st.markdown("##### 📊 Quantidade de Lançamentos")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Final", stats.get('total', len(df_reconciled)))
     c2.metric("Mantidas (Sheets)", stats.get('mantidos', 0))

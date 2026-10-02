@@ -301,14 +301,21 @@ def reconcile_transactions(
         # Se Sheets está vazio, retorna tudo da fatura
         if df_fatura is None or df_fatura.empty:
             return pd.DataFrame(columns=['categoria', 'Data', 'Estabelecimento', 'Valor', '_status']), {
-                'total': 0, 'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0
+                'total': 0, 'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0,
+                'valor_antigo': 0.0, 'valor_fatura': 0.0, 'valor_novo': 0.0,
+                'diff_valor': 0.0, 'diff_fatura': 0.0, 'bate_com_fatura': True
             }
         res = df_fatura.copy()
         if 'categoria' not in res.columns:
             res['categoria'] = None
         res['_status'] = 'Novo da Fatura'
+        res['Valor'] = res['Valor'].apply(parse_amount)
+        val_fatura = round(float(res['Valor'].sum()), 2)
         return res[['categoria', 'Data', 'Estabelecimento', 'Valor', '_status']], {
-            'total': len(res), 'mantidos': 0, 'preenchidos': 0, 'novos': len(res), 'sem_categoria': int(res['categoria'].isna().sum())
+            'total': len(res), 'mantidos': 0, 'preenchidos': 0, 'novos': len(res),
+            'sem_categoria': int(res['categoria'].isna().sum()),
+            'valor_antigo': 0.0, 'valor_fatura': val_fatura, 'valor_novo': val_fatura,
+            'diff_valor': val_fatura, 'diff_fatura': 0.0, 'bate_com_fatura': True
         }
 
     # Prepara cópias de trabalho
@@ -485,7 +492,20 @@ def reconcile_transactions(
         df_result = df_result.sort_values(by=['_sort_date', 'Estabelecimento']).reset_index(drop=True)
         df_result = df_result.drop(columns=['_sort_date', '_date_obj'], errors='ignore')
 
+    valor_antigo = round(float(sheets_work['_val_num'].sum()), 2)
+    valor_fatura = round(float(fatura_work['_val_num'].sum()), 2) if not fatura_work.empty and '_val_num' in fatura_work.columns else 0.0
+    valor_novo = round(float(df_result['Valor'].sum()), 2) if not df_result.empty and 'Valor' in df_result.columns else 0.0
+    diff_valor = round(valor_novo - valor_antigo, 2)
+    diff_fatura = round(valor_novo - valor_fatura, 2)
+    bate_com_fatura = bool(abs(diff_fatura) < 0.01)
+
     stats['total'] = len(df_result)
+    stats['valor_antigo'] = valor_antigo
+    stats['valor_fatura'] = valor_fatura
+    stats['valor_novo'] = valor_novo
+    stats['diff_valor'] = diff_valor
+    stats['diff_fatura'] = diff_fatura
+    stats['bate_com_fatura'] = bate_com_fatura
 
     return df_result, stats
 
