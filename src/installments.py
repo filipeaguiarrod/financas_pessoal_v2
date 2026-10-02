@@ -2,7 +2,7 @@ import re
 import pandas as pd
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from .credit_card import parse_nubank_amount
+from .credit_card import parse_nubank_amount, load_csv, detect_bank
 
 
 def parse_brl(value: str) -> float:
@@ -13,26 +13,6 @@ def parse_brl(value: str) -> float:
         return float(cleaned)
     except ValueError:
         return 0.0
-
-
-def load_csv(filepath) -> pd.DataFrame:
-    """Carrega CSV tentando separador vírgula e, se insuficiente, ponto-e-vírgula."""
-    df = pd.read_csv(filepath, sep=',', encoding='utf-8')
-    if len(df.columns) >= 3:
-        return df
-    if hasattr(filepath, 'seek'):
-        filepath.seek(0)
-    return pd.read_csv(filepath, sep=';', encoding='utf-8')
-
-
-def detect_bank(df: pd.DataFrame) -> str:
-    """Identifica o banco pelo schema de colunas do DataFrame."""
-    cols = set(df.columns)
-    if {'date', 'title', 'amount'}.issubset(cols):
-        return 'nubank'
-    if {'Data', 'Estabelecimento', 'Parcela', 'Valor'}.issubset(cols):
-        return 'xp'
-    raise ValueError(f"Schema não reconhecido. Colunas: {list(df.columns)}")
 
 
 def parse_dates(raw: pd.DataFrame, bank: str) -> pd.Series:
