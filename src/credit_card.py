@@ -168,16 +168,22 @@ def transform_partial_nu(nubank_html: str) -> pd.DataFrame:
 
 
 def parse_nubank_amount(val) -> float:
-    """Converte o valor do Nubank para float, aceitando tanto '.' quanto ',' como separador decimal."""
+    """Converte o valor do Nubank para float, aceitando tanto '.' quanto ',' como separador decimal,
+    além de suportar valores negativos com espaço ou parênteses (ex: '- 36,51', '-36.51', '(36,51)')."""
     if pd.isna(val):
         return 0.0
     if isinstance(val, (int, float)):
-        return float(val)
+        return round(float(val), 2)
     val_str = str(val).strip()
     if not val_str:
         return 0.0
     
-    val_str = val_str.replace('R$', '').strip()
+    val_str = val_str.replace('R$', '').replace('\xa0', '').strip()
+    
+    negative = False
+    if val_str.startswith('-') or (val_str.startswith('(') and val_str.endswith(')')):
+        negative = True
+        val_str = val_str.strip('-()').strip()
     
     # Handle case where both dot and comma are present
     if ',' in val_str and '.' in val_str:
@@ -189,7 +195,8 @@ def parse_nubank_amount(val) -> float:
         val_str = val_str.replace(',', '.')
         
     try:
-        return float(val_str)
+        num = float(val_str)
+        return round(-num if negative else num, 2)
     except ValueError:
         return 0.0
 

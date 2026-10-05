@@ -24,6 +24,10 @@ def test_parse_nubank_amount():
     # Negative values
     assert parse_nubank_amount("-34.86") == -34.86
     assert parse_nubank_amount("-34,86") == -34.86
+    assert parse_nubank_amount("- 36,51") == -36.51
+    assert parse_nubank_amount("- 157,04") == -157.04
+    assert parse_nubank_amount("- 1.704,28") == -1704.28
+    assert parse_nubank_amount("(36,51)") == -36.51
     
     # Invalid or empty values
     assert parse_nubank_amount(None) == 0.0
