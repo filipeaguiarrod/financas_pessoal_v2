@@ -42,7 +42,7 @@ def parse_amount(val: Any) -> float:
     negative = False
     if val_str.startswith('-') or (val_str.startswith('(') and val_str.endswith(')')):
         negative = True
-        val_str = val_str.strip('-()')
+        val_str = val_str.strip('-()').strip()
 
     # Trata separador de milhar e decimal
     if ',' in val_str and '.' in val_str:
@@ -151,8 +151,11 @@ def is_amount_like(val: str) -> bool:
     s = val.strip().replace('R$', '').replace('\xa0', '').strip()
     if not s:
         return False
-    # Padrão: números com vírgula ou ponto decimal
-    return bool(re.match(r'^-?\d+(?:[.,]\d{1,2})?$', s))
+    # Remove sinal negativo ou parênteses com espaço opcional
+    if s.startswith('-') or (s.startswith('(') and s.endswith(')')):
+        s = s.strip('-()').strip()
+    # Padrão: números com vírgula ou ponto decimal, suportando separador de milhar (ex: 1.234,56 ou 1,234.56 ou 36,51)
+    return bool(re.match(r'^\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?$|^\d+(?:[.,]\d{1,2})?$', s))
 
 
 def parse_sheets_data(raw_text: str, default_year: Optional[int] = None) -> pd.DataFrame:

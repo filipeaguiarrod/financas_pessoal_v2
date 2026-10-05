@@ -78,3 +78,56 @@ def test_format_display_df():
     })
     disp = credit_card.format_display_df(df)
     assert disp['Valor'].iloc[0] == '1234,56'
+
+
+def test_process_credit_card_invoice_nubank_with_refunds():
+    import io
+    csv_data = (
+        'date,title,amount\n'
+        '2026-09-24,Ifd*Farma Popular,"61,88"\n'
+        '2026-09-22,Amazon Credito - NuPay,"122,97"\n'
+        '2026-09-22,Amazonmktplc*Megaecomm,"74,99"\n'
+        '2026-09-22,Amazon Credito AMZ - NuPay,"35,80"\n'
+        '2026-09-21,Google Youtube,"26,90"\n'
+        '2026-09-21,Mercado Oba Oba Ltda M,"6,72"\n'
+        '2026-09-20,Amazon Credito AMZ - NuPay,"- 36,51"\n'
+        '2026-09-20,Amazon Credito AMZ - NuPay,"107,27"\n'
+        '2026-09-17,Vivo Lite*Vivo Easy,"38,00"\n'
+        '2026-09-13,Amazon Credito AMZ - NuPay,"36,51"\n'
+        '2026-09-13,Uber - NuPay,"19,90"\n'
+        '2026-09-13,Google Medium,"16,99"\n'
+        '2026-09-12,Mlp *Kabum-Kabum - Parcela 1/8,"26,25"\n'
+        '2026-09-11,Amazon - Parcela 1/12,"33,38"\n'
+        '2026-09-10,Mp *Aliexpress - Parcela 1/4,"38,10"\n'
+        '2026-09-10,Amazon Credito AMZ - NuPay,"29,99"\n'
+        '2026-09-10,Mlp *Kabum-Kabum - Parcela 1/10,"60,01"\n'
+        '2026-09-09,Ebn *Playstation,"19,99"\n'
+        '2026-09-08,Mlp *Kabum-Kabum,"4.097,06"\n'
+        '2026-09-08,Amazon BR III - NuPay,"- 157,04"\n'
+        '2026-09-08,Amazon BR III - NuPay,"157,04"\n'
+        '2026-09-02,Smart Fit Parque Migue,"129,90"\n'
+        '2026-09-02,Amazon BR III - NuPay,"98,63"\n'
+        '2026-08-31,Pagamento recebido,"- 1.704,28"\n'
+        '2026-08-31,Google One,"48,49"\n'
+        '2026-08-29,Dl*Uberrides,"11,06"\n'
+        '2026-08-29,Dl*Uberrides,"8,80"\n'
+        '2026-08-29,NuTag*AYA7I00,"31,00"\n'
+        '2026-08-29,Dl*Uberrides,"10,00"\n'
+        '2026-08-26,Amazon - Parcela 3/5,"33,99"\n'
+        '2026-08-26,Amazon Marketplace - Parcela 2/2,"44,36"\n'
+        '2026-08-26,Amazon - Parcela 5/6,"51,31"\n'
+    )
+    df = pd.read_csv(io.StringIO(csv_data))
+    result = credit_card.process_credit_card_invoice(df)
+
+    assert result.bank == 'nubank'
+    assert result.total_amount == 5283.74
+
+    # Verify refunds are present with negative values
+    refunds = result.df[result.df['Valor'] < 0]
+    assert len(refunds) == 2
+    assert -36.51 in refunds['Valor'].values
+    assert -157.04 in refunds['Valor'].values
+    # Check that previous invoice payment was filtered out
+    assert not (result.df['Estabelecimento'] == 'Pagamento recebido').any()
+

@@ -8,6 +8,7 @@ from src.reconciler import (
     parse_sheets_data,
     reconcile_transactions,
     to_sheets_tsv,
+    is_amount_like,
 )
 
 
@@ -18,9 +19,21 @@ def test_parse_amount():
     assert parse_amount('26,00') == 26.0
     assert parse_amount('R$ 1.234,56') == 1234.56
     assert parse_amount('1,234.56') == 1234.56
+    assert parse_amount('- 36,51') == -36.51
+    assert parse_amount('- 1.704,28') == -1704.28
+    assert parse_amount('(36,51)') == -36.51
     assert parse_amount(45.5) == 45.5
     assert parse_amount(None) == 0.0
     assert parse_amount('') == 0.0
+
+
+def test_is_amount_like():
+    assert is_amount_like('36,51') is True
+    assert is_amount_like('- 36,51') is True
+    assert is_amount_like('- 1.704,28') is True
+    assert is_amount_like('(157,04)') is True
+    assert is_amount_like('1.704,28') is True
+    assert is_amount_like('Amazon') is False
 
 
 def test_parse_date_formats():
