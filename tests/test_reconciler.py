@@ -191,11 +191,11 @@ def test_reconciliation_financial_metrics_matching():
     assert stats['bate_com_fatura'] is True
 
 
-def test_reconciliation_financial_metrics_divergence():
-    # Sheets possui um item extra que não está na fatura
+def test_reconciliation_financial_metrics_discard_unmatched_sheets():
+    # Sheets possui um item extra que não está na fatura (compra não efetivada)
     df_sheets = pd.DataFrame([
         {'categoria': 'FERRAMENTAS', 'Data': '17 ago.', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
-        {'categoria': 'EXTRA', 'Data': '01 set.', 'Estabelecimento': 'COMPRA ANTIGA', 'Valor': 50.0},
+        {'categoria': 'EXTRA', 'Data': '01 set.', 'Estabelecimento': 'COMPRA CANCELADA', 'Valor': 50.0},
     ])
     df_fatura = pd.DataFrame([
         {'categoria': 'Outros', 'Data': '17/08/2026', 'Estabelecimento': 'MP*ALIEXPRESS', 'Valor': 48.04},
@@ -203,8 +203,62 @@ def test_reconciliation_financial_metrics_divergence():
 
     df_res, stats = reconcile_transactions(df_sheets, df_fatura, default_year=2026)
 
+    # A fatura é a verdade: COMPRA CANCELADA foi excluída da consolidação
+    assert len(df_res) == 1
+    assert stats['total'] == 1
     assert stats['valor_antigo'] == 98.04
     assert stats['valor_fatura'] == 48.04
-    assert stats['valor_novo'] == 98.04
-    assert stats['diff_fatura'] == 50.0
-    assert stats['bate_com_fatura'] is False
+    assert stats['valor_novo'] == 48.04
+    assert stats['diff_fatura'] == 0.0
+    assert stats['bate_com_fatura'] is True
+
+    # Valida estrutura de transações descartadas
+    assert stats['removidos'] == 1
+    assert stats['valor_removido'] == 50.0
+    assert not stats['df_descartados'].empty
+    discarded = stats['df_descartados'].iloc[0]
+    assert discarded['Estabelecimento'] == 'COMPRA CANCELADA'
+    assert discarded['Valor'] == 50.0
+    assert discarded['categoria'] == 'EXTRA'
+
+
+def test_reconciliation_multi_occurrence_one_effective():
+    # Sheets tinha duas compras idênticas no mesmo dia, mas a fatura só cobrou uma
+    df_sheets = pd.DataFrame([
+        {'categoria': 'ALIMENTAÇÃO', 'Data': '30/08/2026', 'Estabelecimento': 'CRISTAL', 'Valor': 16.0},
+        {'categoria': 'ALIMENTAÇÃO', 'Data': '30/08/2026', 'Estabelecimento': 'CRISTAL', 'Valor': 16.0},
+    ])
+    df_fatura = pd.DataFrame([
+        {'categoria': 'Outros', 'Data': '30/08/2026', 'Estabelecimento': 'CRISTAL', 'Valor': 16.0},
+    ])
+
+    df_res, stats = reconcile_transactions(df_sheets, df_fatura, default_year=2026)
+    assert len(df_res) == 1
+    assert stats['total'] == 1
+    assert stats['mantidos'] == 1
+    assert stats['removidos'] == 1
+    assert stats['valor_removido'] == 16.0
+    assert stats['valor_novo'] == 16.0
+    assert stats['df_descartados'].iloc[0]['Valor'] == 16.0
+
+
+def test_reconciliation_empty_inputs():
+    # Sheets vazio, fatura com lançamentos
+    df_fatura = pd.DataFrame([
+        {'categoria': 'Restaurante', 'Data': '01/09/2026', 'Estabelecimento': 'SPOLETO', 'Valor': 50.0}
+    ])
+    df_res, stats = reconcile_transactions(None, df_fatura)
+    assert len(df_res) == 1
+    assert stats['novos'] == 1
+    assert stats['removidos'] == 0
+
+    # Fatura vazia, sheets com lançamentos
+    df_sheets = pd.DataFrame([
+        {'categoria': 'Restaurante', 'Data': '01/09/2026', 'Estabelecimento': 'SPOLETO', 'Valor': 50.0}
+    ])
+    df_res2, stats2 = reconcile_transactions(df_sheets, None)
+    assert len(df_res2) == 0
+    assert stats2['total'] == 0
+    assert stats2['removidos'] == 1
+    assert stats2['valor_removido'] == 50.0
+

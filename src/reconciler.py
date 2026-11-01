@@ -288,42 +288,55 @@ def reconcile_transactions(
     df_fatura: pd.DataFrame,
     default_year: Optional[int] = None
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    """Reconcilia as transações da base validada do Sheets com a Fatura Nova classificada.
+    """Reconcilia as transações mantendo a Fatura Oficial como a verdade absoluta.
 
-    Regras de Prioridade:
-    1. Se a transação já está no Sheets e possui categoria preenchida, mantém a do Sheets.
-    2. Se a transação está no Sheets mas a categoria está vazia/None, preenche com a da fatura.
-    3. Se a transação está na fatura nova e não estava no Sheets, insere como novo lançamento.
-    4. Se a transação estava no Sheets mas não na fatura nova, preserva.
-    5. Desambigua transações idênticas (mesmo dia, valor e estabelecimento).
+    Regras de Negócio:
+    1. A Fatura Oficial é a base canônica ('verdade'): toda transação consolidada
+       provém da fatura. O valor total e a quantidade final coincidem 100% com a fatura.
+    2. Se a transação da fatura existir na Base Validada (Sheets) e tiver categoria,
+       mantém a categoria validada pelo usuário ('Mantido do Sheets').
+    3. Se existir no Sheets mas sem categoria (ou categoria vazia), preenche com a
+       classificação da fatura ('Preenchido da Fatura').
+    4. Se for um lançamento exclusivo da fatura, inclui como novo lançamento ('Novo da Fatura').
+    5. Se uma transação do Sheets NÃO existir na fatura, ela é REMOVIDA da consolidação final
+       (não foi efetivada na operadora) e registrada em `df_descartados` para conferência.
+    6. Trata compras duplicadas / repetidas (mesmo dia, valor e estabelecimento) 1-para-1.
 
     Retorna:
     (df_reconciled, summary_metrics)
     """
-    if df_sheets is None or df_sheets.empty:
-        # Se Sheets está vazio, retorna tudo da fatura
-        if df_fatura is None or df_fatura.empty:
-            return pd.DataFrame(columns=['categoria', 'Data', 'Estabelecimento', 'Valor', '_status']), {
-                'total': 0, 'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0,
-                'valor_antigo': 0.0, 'valor_fatura': 0.0, 'valor_novo': 0.0,
-                'diff_valor': 0.0, 'diff_fatura': 0.0, 'bate_com_fatura': True
-            }
-        res = df_fatura.copy()
-        if 'categoria' not in res.columns:
-            res['categoria'] = None
-        res['_status'] = 'Novo da Fatura'
-        res['Valor'] = res['Valor'].apply(parse_amount)
-        val_fatura = round(float(res['Valor'].sum()), 2)
-        return res[['categoria', 'Data', 'Estabelecimento', 'Valor', '_status']], {
-            'total': len(res), 'mantidos': 0, 'preenchidos': 0, 'novos': len(res),
-            'sem_categoria': int(res['categoria'].isna().sum()),
-            'valor_antigo': 0.0, 'valor_fatura': val_fatura, 'valor_novo': val_fatura,
-            'diff_valor': val_fatura, 'diff_fatura': 0.0, 'bate_com_fatura': True
+    empty_result_cols = ['categoria', 'Data', 'Estabelecimento', 'Valor', '_status']
+    empty_descartados_cols = ['categoria', 'Data', 'Estabelecimento', 'Valor', '_motivo']
+
+    # Caso em que a Fatura está vazia ou nula: como a fatura é a verdade,
+    # nada é efetivado na consolidação final e tudo do Sheets vira descartado.
+    if df_fatura is None or df_fatura.empty:
+        val_antigo = 0.0
+        df_descartados = pd.DataFrame(columns=empty_descartados_cols)
+        if df_sheets is not None and not df_sheets.empty:
+            sheets_work = df_sheets.copy()
+            sheets_work['_val_num'] = sheets_work['Valor'].apply(parse_amount)
+            val_antigo = round(float(sheets_work['_val_num'].sum()), 2)
+            df_descartados = pd.DataFrame({
+                'categoria': sheets_work['categoria'].fillna('').astype(str),
+                'Data': sheets_work['Data'],
+                'Estabelecimento': sheets_work['Estabelecimento'],
+                'Valor': sheets_work['_val_num'],
+                '_motivo': 'Não encontrado na fatura oficial (não efetivado)'
+            })
+
+        return pd.DataFrame(columns=empty_result_cols), {
+            'total': 0, 'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0,
+            'removidos': len(df_descartados),
+            'valor_removido': round(float(df_descartados['Valor'].sum()), 2) if not df_descartados.empty else 0.0,
+            'df_descartados': df_descartados,
+            'valor_antigo': val_antigo, 'valor_fatura': 0.0, 'valor_novo': 0.0,
+            'diff_valor': -val_antigo, 'diff_fatura': 0.0, 'bate_com_fatura': True
         }
 
     # Prepara cópias de trabalho
-    sheets_work = df_sheets.copy()
-    fatura_work = df_fatura.copy() if df_fatura is not None else pd.DataFrame()
+    fatura_work = df_fatura.copy()
+    sheets_work = df_sheets.copy() if df_sheets is not None and not df_sheets.empty else pd.DataFrame()
 
     # Se não temos ano padrão, tenta inferir a partir da fatura
     if not default_year and not fatura_work.empty and 'Data' in fatura_work.columns:
@@ -333,52 +346,52 @@ def reconcile_transactions(
                 default_year = int(m.group(1))
                 break
 
-    # Normalizações para casamento no Sheets
-    if '_date_obj' not in sheets_work.columns:
-        sheets_dates = [parse_date(d, default_year=default_year) for d in sheets_work['Data']]
-        sheets_work['_date_obj'] = [d[0] for d in sheets_dates]
-        sheets_work['Data'] = [d[1] or str(orig) for d, orig in zip(sheets_dates, sheets_work['Data'])]
+    # Normalizações para casamento na Fatura (Base Canônica)
+    if '_date_obj' not in fatura_work.columns:
+        fatura_dates = [parse_date(d, default_year=default_year) for d in fatura_work['Data']]
+        fatura_work['_date_obj'] = [d[0] for d in fatura_dates]
+        fatura_work['Data'] = [d[1] or str(orig) for d, orig in zip(fatura_dates, fatura_work['Data'])]
+    fatura_work['_val_num'] = fatura_work['Valor'].apply(parse_amount)
+    fatura_work['_estab_norm'] = fatura_work['Estabelecimento'].apply(normalize_establishment)
+    if 'categoria' not in fatura_work.columns:
+        fatura_work['categoria'] = None
 
-    sheets_work['_val_num'] = sheets_work['Valor'].apply(parse_amount)
-    sheets_work['_estab_norm'] = sheets_work['Estabelecimento'].apply(normalize_establishment)
-
-    # Normalizações para casamento na Fatura
-    if not fatura_work.empty:
-        if '_date_obj' not in fatura_work.columns:
-            fatura_dates = [parse_date(d, default_year=default_year) for d in fatura_work['Data']]
-            fatura_work['_date_obj'] = [d[0] for d in fatura_dates]
-            fatura_work['Data'] = [d[1] or str(orig) for d, orig in zip(fatura_dates, fatura_work['Data'])]
-        fatura_work['_val_num'] = fatura_work['Valor'].apply(parse_amount)
-        fatura_work['_estab_norm'] = fatura_work['Estabelecimento'].apply(normalize_establishment)
-        if 'categoria' not in fatura_work.columns:
-            fatura_work['categoria'] = None
+    # Normalizações para casamento no Sheets (Base Anterior)
+    if not sheets_work.empty:
+        if '_date_obj' not in sheets_work.columns:
+            sheets_dates = [parse_date(d, default_year=default_year) for d in sheets_work['Data']]
+            sheets_work['_date_obj'] = [d[0] for d in sheets_dates]
+            sheets_work['Data'] = [d[1] or str(orig) for d, orig in zip(sheets_dates, sheets_work['Data'])]
+        sheets_work['_val_num'] = sheets_work['Valor'].apply(parse_amount)
+        sheets_work['_estab_norm'] = sheets_work['Estabelecimento'].apply(normalize_establishment)
+        if 'categoria' not in sheets_work.columns:
+            sheets_work['categoria'] = None
     else:
-        fatura_work = pd.DataFrame(columns=['categoria', 'Data', 'Estabelecimento', 'Valor', '_date_obj', '_val_num', '_estab_norm'])
+        sheets_work = pd.DataFrame(columns=['categoria', 'Data', 'Estabelecimento', 'Valor', '_date_obj', '_val_num', '_estab_norm'])
 
-    # Adiciona contadores de ocorrência para desambiguação de compras repetidas
-    # Chave: (data, valor, estab)
-    sheets_work['_match_key'] = list(zip(
-        sheets_work['_date_obj'].astype(str),
-        sheets_work['_val_num'],
-        sheets_work['_estab_norm']
+    # Chaves de casamento e contadores de ocorrência para desambiguação
+    fatura_work['_match_key'] = list(zip(
+        fatura_work['_date_obj'].astype(str),
+        fatura_work['_val_num'],
+        fatura_work['_estab_norm']
     ))
-    sheets_work['_occ'] = sheets_work.groupby('_match_key').cumcount()
-    sheets_work['_full_key'] = list(zip(sheets_work['_match_key'], sheets_work['_occ']))
+    fatura_work['_occ'] = fatura_work.groupby('_match_key').cumcount()
+    fatura_work['_full_key'] = list(zip(fatura_work['_match_key'], fatura_work['_occ']))
 
-    if not fatura_work.empty:
-        fatura_work['_match_key'] = list(zip(
-            fatura_work['_date_obj'].astype(str),
-            fatura_work['_val_num'],
-            fatura_work['_estab_norm']
+    if not sheets_work.empty:
+        sheets_work['_match_key'] = list(zip(
+            sheets_work['_date_obj'].astype(str),
+            sheets_work['_val_num'],
+            sheets_work['_estab_norm']
         ))
-        fatura_work['_occ'] = fatura_work.groupby('_match_key').cumcount()
-        fatura_work['_full_key'] = list(zip(fatura_work['_match_key'], fatura_work['_occ']))
+        sheets_work['_occ'] = sheets_work.groupby('_match_key').cumcount()
+        sheets_work['_full_key'] = list(zip(sheets_work['_match_key'], sheets_work['_occ']))
 
-    # Mapa da fatura por _full_key para busca rápida
-    fatura_dict = {}
-    fatura_matched_keys = set()
-    for idx, row in fatura_work.iterrows():
-        fatura_dict[row['_full_key']] = row
+    # Mapa do sheets por _full_key para busca rápida e controle de chaves já casadas
+    sheets_dict = {}
+    sheets_matched_keys = set()
+    for idx, row in sheets_work.iterrows():
+        sheets_dict[row['_full_key']] = row
 
     reconciled_rows = []
     stats = {
@@ -388,48 +401,47 @@ def reconcile_transactions(
         'sem_categoria': 0
     }
 
-    # 1. Itera sobre o Sheets preservando a ordem ou os registros do usuário
-    for idx, s_row in sheets_work.iterrows():
-        full_key = s_row['_full_key']
-        user_cat = s_row['categoria']
-        user_cat_valid = user_cat is not None and not pd.isna(user_cat) and str(user_cat).strip() != ""
+    # Itera sobre a FATURA (Verdade Absoluta): toda linha da fatura existirá na base final
+    for idx, f_row in fatura_work.iterrows():
+        full_key = f_row['_full_key']
+        matched_sheets_row = sheets_dict.get(full_key)
 
-        matched_fatura_row = fatura_dict.get(full_key)
+        # Se a chave exata já foi usada por outra linha idêntica, anula
+        if matched_sheets_row is not None and matched_sheets_row['_full_key'] in sheets_matched_keys:
+            matched_sheets_row = None
 
-        # Fallback de busca se data divergir por formato sem ano ou ligeiro arredondamento
-        if matched_fatura_row is None and not fatura_work.empty:
-            # Procura por (valor, estab_norm) que ainda não foi casado
-            candidates = fatura_work[
-                (fatura_work['_val_num'] == s_row['_val_num']) &
-                (fatura_work['_estab_norm'] == s_row['_estab_norm']) &
-                (~fatura_work['_full_key'].isin(fatura_matched_keys))
+        # Fallback de busca: mesmo valor e estabelecimento com proximidade de data (+- 2 dias)
+        if matched_sheets_row is None and not sheets_work.empty:
+            candidates = sheets_work[
+                (sheets_work['_val_num'] == f_row['_val_num']) &
+                (sheets_work['_estab_norm'] == f_row['_estab_norm']) &
+                (~sheets_work['_full_key'].isin(sheets_matched_keys))
             ]
             if not candidates.empty:
-                # Compara dias se disponível
                 for _, cand in candidates.iterrows():
-                    s_d = s_row['_date_obj']
+                    f_d = f_row['_date_obj']
                     c_d = cand['_date_obj']
-                    # Se mesmo dia e mês ou data nula
-                    if s_d and c_d:
-                        if abs((s_d - c_d).days) <= 2:
-                            matched_fatura_row = cand
+                    if f_d and c_d:
+                        if abs((f_d - c_d).days) <= 2:
+                            matched_sheets_row = cand
                             break
                     else:
-                        matched_fatura_row = cand
+                        matched_sheets_row = cand
                         break
 
-        if matched_fatura_row is not None:
-            fatura_matched_keys.add(matched_fatura_row['_full_key'])
-            fatura_cat = matched_fatura_row['categoria']
+        if matched_sheets_row is not None:
+            sheets_matched_keys.add(matched_sheets_row['_full_key'])
+            user_cat = matched_sheets_row['categoria']
+            user_cat_valid = user_cat is not None and not pd.isna(user_cat) and str(user_cat).strip() != ""
+
+            fatura_cat = f_row['categoria']
             fatura_cat_valid = fatura_cat is not None and not pd.isna(fatura_cat) and str(fatura_cat).strip() != ""
 
             if user_cat_valid:
-                # Prioridade 1: Usuário já validou
                 final_cat = str(user_cat).strip()
                 status = 'Mantido do Sheets'
                 stats['mantidos'] += 1
             elif fatura_cat_valid:
-                # Prioridade 2: Preenche com a classificação da fatura nova
                 final_cat = str(fatura_cat).strip()
                 status = 'Preenchido da Fatura'
                 stats['preenchidos'] += 1
@@ -440,41 +452,20 @@ def reconcile_transactions(
 
             reconciled_rows.append({
                 'categoria': final_cat,
-                'Data': matched_fatura_row['Data'] if matched_fatura_row['Data'] else s_row['Data'],
-                'Estabelecimento': matched_fatura_row['Estabelecimento'] or s_row['Estabelecimento'],
-                'Valor': s_row['_val_num'],
+                'Data': f_row['Data'],
+                'Estabelecimento': f_row['Estabelecimento'],
+                'Valor': f_row['_val_num'],
                 '_status': status,
-                '_date_obj': matched_fatura_row['_date_obj'] or s_row['_date_obj']
+                '_date_obj': f_row['_date_obj']
             })
         else:
-            # Transação existe apenas no Sheets
-            if user_cat_valid:
-                final_cat = str(user_cat).strip()
-                status = 'Mantido do Sheets'
-                stats['mantidos'] += 1
-            else:
-                final_cat = ""
-                status = 'Sem Categoria'
-                stats['sem_categoria'] += 1
-
-            reconciled_rows.append({
-                'categoria': final_cat,
-                'Data': s_row['Data'],
-                'Estabelecimento': s_row['Estabelecimento'],
-                'Valor': s_row['_val_num'],
-                '_status': status,
-                '_date_obj': s_row['_date_obj']
-            })
-
-    # 2. Adiciona as transações da Fatura Nova que não existiam no Sheets
-    for idx, f_row in fatura_work.iterrows():
-        if f_row['_full_key'] not in fatura_matched_keys:
-            f_cat = f_row['categoria']
-            f_cat_valid = f_cat is not None and not pd.isna(f_cat) and str(f_cat).strip() != ""
-            final_cat = str(f_cat).strip() if f_cat_valid else ""
+            # Lançamento exclusivo da fatura nova (não estava no Sheets)
+            fatura_cat = f_row['categoria']
+            fatura_cat_valid = fatura_cat is not None and not pd.isna(fatura_cat) and str(fatura_cat).strip() != ""
+            final_cat = str(fatura_cat).strip() if fatura_cat_valid else ""
             status = 'Novo da Fatura'
             stats['novos'] += 1
-            if not f_cat_valid:
+            if not fatura_cat_valid:
                 stats['sem_categoria'] += 1
 
             reconciled_rows.append({
@@ -486,23 +477,44 @@ def reconcile_transactions(
                 '_date_obj': f_row['_date_obj']
             })
 
-    df_result = pd.DataFrame(reconciled_rows)
+    # Identifica transações do Sheets que NÃO foram casadas na fatura (não efetivadas)
+    descartados_rows = []
+    if not sheets_work.empty:
+        for idx, s_row in sheets_work.iterrows():
+            if s_row['_full_key'] not in sheets_matched_keys:
+                s_cat = s_row['categoria']
+                cat_str = str(s_cat).strip() if s_cat is not None and not pd.isna(s_cat) else ""
+                descartados_rows.append({
+                    'categoria': cat_str,
+                    'Data': s_row['Data'],
+                    'Estabelecimento': s_row['Estabelecimento'],
+                    'Valor': s_row['_val_num'],
+                    '_motivo': 'Não encontrado na fatura oficial (não efetivado)'
+                })
+
+    df_descartados = pd.DataFrame(descartados_rows) if descartados_rows else pd.DataFrame(columns=empty_descartados_cols)
+
+    df_result = pd.DataFrame(reconciled_rows) if reconciled_rows else pd.DataFrame(columns=empty_result_cols)
 
     # Ordenação por data (se disponível)
     if not df_result.empty and '_date_obj' in df_result.columns:
-        # Trata datas nulas colocando ao final
         df_result['_sort_date'] = df_result['_date_obj'].apply(lambda d: d.isoformat() if d else '9999-12-31')
         df_result = df_result.sort_values(by=['_sort_date', 'Estabelecimento']).reset_index(drop=True)
         df_result = df_result.drop(columns=['_sort_date', '_date_obj'], errors='ignore')
 
-    valor_antigo = round(float(sheets_work['_val_num'].sum()), 2)
+    valor_antigo = round(float(sheets_work['_val_num'].sum()), 2) if not sheets_work.empty and '_val_num' in sheets_work.columns else 0.0
     valor_fatura = round(float(fatura_work['_val_num'].sum()), 2) if not fatura_work.empty and '_val_num' in fatura_work.columns else 0.0
     valor_novo = round(float(df_result['Valor'].sum()), 2) if not df_result.empty and 'Valor' in df_result.columns else 0.0
     diff_valor = round(valor_novo - valor_antigo, 2)
     diff_fatura = round(valor_novo - valor_fatura, 2)
     bate_com_fatura = bool(abs(diff_fatura) < 0.01)
 
+    valor_removido = round(float(df_descartados['Valor'].sum()), 2) if not df_descartados.empty and 'Valor' in df_descartados.columns else 0.0
+
     stats['total'] = len(df_result)
+    stats['removidos'] = len(df_descartados)
+    stats['valor_removido'] = valor_removido
+    stats['df_descartados'] = df_descartados
     stats['valor_antigo'] = valor_antigo
     stats['valor_fatura'] = valor_fatura
     stats['valor_novo'] = valor_novo
