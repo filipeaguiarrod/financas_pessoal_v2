@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -139,11 +139,11 @@ Retorne SEMPRE e APENAS um objeto JSON válido no seguinte formato:
   "sql_query": "SELECT ...",
   "explanation": "Explicação concisa em português do que a consulta calcula",
   "chart": {{
-    "type": "bar", // opções válidas: "bar", "line", "pie", "area", "table"
+    "type": "bar",
     "x": "nome_coluna_eixo_x_ou_categoria",
     "y": "nome_coluna_eixo_y_ou_valor",
     "title": "Título sugerido para o gráfico",
-    "orientation": "v" // "v" para vertical ou "h" para horizontal
+    "orientation": "v"
   }},
   "metrics": [
     {{"label": "Total Estimado", "column": "nome_da_coluna_para_somar"}}
@@ -154,17 +154,16 @@ Retorne SEMPRE e APENAS um objeto JSON válido no seguinte formato:
     def generate_query_and_viz(self, user_prompt: str, schema_info: str) -> Dict[str, Any]:
         """
         Recebe a pergunta do usuário e o schema, gerando o SQL e os metadados de visualização Plotly.
+        Usa SystemMessage e HumanMessage diretamente para evitar conflitos de interpolação do LangChain com chaves JSON.
         """
         system_prompt = self._get_system_instructions(schema_info)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("user", "{user_prompt}")
-        ])
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
 
-        chain = prompt | self.llm
-        
         try:
-            response = chain.invoke({"user_prompt": user_prompt})
+            response = self.llm.invoke(messages)
             raw_text = response.content if hasattr(response, "content") else str(response)
 
             # Extração de JSON (lida com blocos markdown ```json ... ```)
@@ -177,16 +176,18 @@ Retorne SEMPRE e APENAS um objeto JSON válido no seguinte formato:
             is_safe, reason = validate_sql_safety(sql)
             parsed["is_safe"] = is_safe
             parsed["safety_reason"] = reason
+            parsed["error"] = None
 
             return parsed
         except Exception as e:
             logging.error(f"Erro ao gerar consulta analítica com IA: {e}")
             return {
                 "sql_query": "",
-                "explanation": f"Não foi possível processar a pergunta: {e}",
+                "explanation": f"Falha na comunicação com o modelo de IA: {e}",
                 "chart": {"type": "table"},
-                "is_safe": False,
-                "safety_reason": str(e)
+                "is_safe": True,
+                "safety_reason": "",
+                "error": str(e)
             }
 
     def generate_insights(self, user_prompt: str, df: pd.DataFrame) -> str:
@@ -200,33 +201,33 @@ Retorne SEMPRE e APENAS um objeto JSON válido no seguinte formato:
         sample_data = df.head(50).to_dict(orient="records")
         summary_stats = df.describe(include="all").to_dict() if len(df) > 0 else {}
 
-        insights_prompt = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em inteligência financeira pessoal.
+        system_msg = SystemMessage(content="""Você é um especialista em inteligência financeira pessoal.
 Analise os dados resultantes da consulta solicitada pelo usuário e forneça um resumo executivo com 3 a 5 pontos-chave (bullet points).
 Destaque:
 - Maiores despesas ou concentrações de gastos.
 - Tendências temporais ou desvios relevantes.
 - Dicas práticas e pontos de atenção financeira baseados exclusivamente nos números apresentados.
-Seja direto, profissional e conciso. Não invente números fora dos dados fornecidos."""),
-            ("user", """Pergunta do Usuário: {user_prompt}
+Seja direto, profissional e conciso. Não invente números fora dos dados fornecidos.""")
+
+        stats_str = json.dumps(summary_stats, default=str)
+        data_str = json.dumps(sample_data, default=str, ensure_ascii=False)
+        user_content = f"""Pergunta do Usuário: {user_prompt}
 
 Estatísticas dos Dados:
-{stats}
+{stats_str}
 
 Amostra dos Resultados:
-{data}
+{data_str}
 
-Gere o resumo de insights:""")
-        ])
+Gere o resumo de insights:"""
 
-        chain = insights_prompt | self.llm
+        messages = [
+            system_msg,
+            HumanMessage(content=user_content)
+        ]
 
         try:
-            res = chain.invoke({
-                "user_prompt": user_prompt,
-                "stats": json.dumps(summary_stats, default=str),
-                "data": json.dumps(sample_data, default=str, ensure_ascii=False)
-            })
+            res = self.llm.invoke(messages)
             return res.content if hasattr(res, "content") else str(res)
         except Exception as e:
             logging.error(f"Erro ao gerar insights com IA: {e}")

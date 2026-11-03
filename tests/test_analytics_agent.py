@@ -76,3 +76,29 @@ def test_postgres_schema_summary_fallback():
     assert "financials.checking_account" in summary
     assert "financials.credit_card" in summary
     assert "financials.user_rules" in summary
+
+
+from unittest.mock import MagicMock
+from langchain_core.messages import AIMessage
+
+
+def test_generate_query_and_viz_with_mock_llm():
+    agent = AnalyticsAgent.__new__(AnalyticsAgent)
+    mock_llm = MagicMock()
+    mock_llm.invoke.return_value = AIMessage(
+        content='{"sql_query": "SELECT * FROM financials.credit_card", "explanation": "Ok", "chart": {"type": "bar"}}'
+    )
+    agent.llm = mock_llm
+
+    res = agent.generate_query_and_viz("quais os maiores gastos?", "schema...")
+    assert res["error"] is None
+    assert res["is_safe"] is True
+    assert res["sql_query"] == "SELECT * FROM financials.credit_card"
+
+    # Verifica que invoke foi chamado com SystemMessage e HumanMessage sem erros de interpolação
+    assert mock_llm.invoke.called
+    args, _ = mock_llm.invoke.call_args
+    messages = args[0]
+    assert len(messages) == 2
+    assert "FORMATO DE RESPOSTA OBRIGATÓRIO" in messages[0].content
+    assert messages[1].content == "quais os maiores gastos?"

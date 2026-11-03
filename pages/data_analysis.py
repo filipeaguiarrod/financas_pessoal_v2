@@ -211,13 +211,17 @@ with tab_chat:
             agent = AnalyticsAgent()
             ai_response = agent.generate_query_and_viz(user_prompt, schema_summary)
 
+        llm_error = ai_response.get("error")
         sql_query = ai_response.get("sql_query", "")
         explanation = ai_response.get("explanation", "")
         chart_config = ai_response.get("chart", {})
         is_safe = ai_response.get("is_safe", False)
         safety_reason = ai_response.get("safety_reason", "")
 
-        if not is_safe:
+        if llm_error:
+            st.error(f"❌ **Erro na Chamada com o Modelo de IA**: {llm_error}")
+            st.info("Verifique sua conexão ou se a chave GOOGLE_API_KEY no arquivo .env possui saldo e permissão de acesso.")
+        elif not is_safe:
             st.error(f"❌ **Consulta Bloqueada por Segurança**: {safety_reason}")
             if sql_query:
                 st.code(sql_query, language="sql")
