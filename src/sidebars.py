@@ -29,6 +29,7 @@ def Navbar():
         st.markdown("### 💼 Backoffice")
         st.page_link(os.path.join(ROOT_DIR, "pages", "regras.py"), label="Regras do Usuário", icon='📋')
         st.page_link(os.path.join(ROOT_DIR, "pages", "etl.py"), label="ETL", icon='⚙️')
+        st.page_link(os.path.join(ROOT_DIR, "pages", "data_analysis.py"), label="Análise de Dados", icon='📊')
         st.page_link(os.path.join(ROOT_DIR, "pages", "price_tracker.py"), label="Monitor de Preços", icon='🏷️')
         # Main Script
     return
