@@ -67,7 +67,17 @@ try:
 except Exception as e:
     db_error_msg = str(e)
 
-col_s1, col_s2, col_s3 = st.columns(3)
+AVAILABLE_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-3-flash-preview"
+]
+default_env_model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+if default_env_model not in AVAILABLE_MODELS:
+    AVAILABLE_MODELS.insert(0, default_env_model)
+
+col_s1, col_s2, col_s3 = st.columns([1.2, 1, 1.2])
 with col_s1:
     if db_connected:
         st.markdown(f"<span class='status-badge badge-ok'>● PostgreSQL: Conectado ({psql.db_schema or 'financials'})</span>", unsafe_allow_html=True)
@@ -79,8 +89,12 @@ with col_s2:
     else:
         st.markdown("<span class='status-badge badge-warn'>▲ Gemini IA: Sem chave GOOGLE_API_KEY</span>", unsafe_allow_html=True)
 with col_s3:
-    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    st.markdown(f"<span class='status-badge' style='background:#eceff1;color:#37474f;'>Modelo: {model_name}</span>", unsafe_allow_html=True)
+    selected_model = st.selectbox(
+        "Modelo:",
+        options=AVAILABLE_MODELS,
+        index=AVAILABLE_MODELS.index(default_env_model) if default_env_model in AVAILABLE_MODELS else 0,
+        key="selected_gemini_model"
+    )
 
 st.divider()
 
@@ -207,8 +221,8 @@ with tab_chat:
         st.session_state["last_prompt"] = user_prompt
         schema_summary = psql.get_schema_summary()
 
-        with st.spinner("🤖 O Gemini está analisando o esquema e elaborando a consulta SQL..."):
-            agent = AnalyticsAgent()
+        with st.spinner(f"🤖 O Gemini ({selected_model}) está analisando o esquema e elaborando a consulta SQL..."):
+            agent = AnalyticsAgent(model_name=selected_model)
             ai_response = agent.generate_query_and_viz(user_prompt, schema_summary)
 
         llm_error = ai_response.get("error")

@@ -100,14 +100,16 @@ class AnalyticsAgent:
         self.provider = provider
         if self.provider == "openai":
             selected_model = model_name or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            self.model_name = selected_model
             self.llm = ChatOpenAI(
                 model=selected_model,
                 temperature=0,
                 api_key=os.environ.get("OPENAI_API_KEY")
             )
         else:
-            # Modelo padrão: gemini-2.5-flash ou configurável via GEMINI_MODEL
-            selected_model = model_name or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            # Modelo padrão: gemini-3.8-flash ou configurável via GEMINI_MODEL
+            selected_model = model_name or os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+            self.model_name = selected_model
             self.llm = ChatGoogleGenerativeAI(
                 model=selected_model,
                 temperature=0,

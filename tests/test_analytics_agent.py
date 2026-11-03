@@ -102,3 +102,13 @@ def test_generate_query_and_viz_with_mock_llm():
     assert len(messages) == 2
     assert "FORMATO DE RESPOSTA OBRIGATÓRIO" in messages[0].content
     assert messages[1].content == "quais os maiores gastos?"
+
+
+def test_analytics_agent_model_configuration():
+    # Teste de inicialização com modelo customizado
+    agent_custom = AnalyticsAgent(provider="gemini", model_name="gemini-3.8-flash")
+    assert agent_custom.model_name == "gemini-3.8-flash"
+
+    # Teste padrão quando model_name não é fornecido
+    agent_default = AnalyticsAgent(provider="gemini")
+    assert agent_default.model_name in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3-flash-preview"]
