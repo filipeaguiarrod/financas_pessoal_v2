@@ -24,33 +24,53 @@ class PostgresUploader:
       self.engine = self.connect_postgres()
       self.connection = self.engine.connect()
 
-   def query_to_df(self,query):
-
+   def query_to_df(self, query):
       query = text(query)
-
-      # Perform the query
       result = self.connection.execute(query)
-
       df_query = pd.DataFrame(result.fetchall(), columns=result.keys())
-
       return df_query
 
+   def get_schema_summary(self) -> str:
+      """
+      Inspeciona o banco de dados e retorna uma descrição detalhada das tabelas
+      e colunas disponíveis no schema para subsidiar o prompt da IA.
+      """
+      schema = self.db_schema or 'financials'
+      try:
+         query = f"""
+            SELECT table_name, column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_schema = '{schema}'
+            ORDER BY table_name, ordinal_position;
+         """
+         df_cols = self.query_to_df(query)
+         if not df_cols.empty:
+            summary_lines = [f"Schema ativo: {schema}"]
+            for t_name, group in df_cols.groupby('table_name'):
+               cols = ", ".join([f"{row['column_name']} ({row['data_type']})" for _, row in group.iterrows()])
+               summary_lines.append(f"- Tabela '{schema}.{t_name}': {cols}")
+            return "\n".join(summary_lines)
+      except Exception:
+         pass
+
+      # Fallback com os metadados conhecidos do projeto
+      return f"""Schema ativo: {schema}
+- Tabela '{schema}.checking_account': data (date), categoria (text), lancamento (text), valor (numeric), created_at (timestamp), dt_competencia (date)
+  Descrição: Transações de contas correntes bancárias (Itaú, Bradesco).
+- Tabela '{schema}.credit_card': data (date), categoria (text), lancamento (text), valor (numeric), created_at (timestamp), dt_competencia (date)
+  Descrição: Faturas e despesas de cartões de crédito (Nubank, XP).
+- Tabela '{schema}.user_rules': id (integer), sentenca (text), categoria (text)
+  Descrição: Regras de correspondência de categorias configuradas pelo usuário."""
 
    def connect_postgres(self):
-
       ''' Create a connection with some postgres database
          returning a engine sqlalchemy connection.
       '''
-
-      # Create the connection string to postgres
       conn_string = f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
-      # Create SQLAlchemy engine
       engine = create_engine(conn_string)
-
       return engine
 
    def postgres_upload_table(self, df, table_name, if_exists):
-      
       df.columns = ['categoria', 'data', 'lancamento', 'valor']
       df['valor'] = df['valor'].astype('string') 
       df['valor'] = df['valor'].str.replace(',', '.')

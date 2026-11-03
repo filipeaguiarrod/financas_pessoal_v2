@@ -318,7 +318,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = "==1.2.1" },
     { name = "requests", specifier = "==2.32.5" },
     { name = "sqlalchemy", specifier = "==2.0.47" },
-    { name = "streamlit", specifier = ">=1.57.0" },
+    { name = "streamlit", specifier = "==1.57.0" },
     { name = "xlrd", specifier = ">=2.0.2" },
 ]
 
