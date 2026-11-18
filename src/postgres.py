@@ -126,3 +126,83 @@ class PostgresUploader:
          {'id': rule_id}
       )
       self.connection.commit()
+
+   def _schema(self) -> str:
+      return self.db_schema or 'financials'
+
+   def ensure_ecommerce_orders_table(self):
+      schema = self._schema()
+      self.connection.execute(text(f'''
+         CREATE TABLE IF NOT EXISTS {schema}.ecommerce_orders (
+            id         SERIAL PRIMARY KEY,
+            data       DATE NOT NULL,
+            origem     TEXT NOT NULL,
+            pedido_id  TEXT NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      NUMERIC(12, 2) NOT NULL,
+            email_id   TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT NOW()
+         )
+      '''))
+      self.connection.execute(text(f'''
+         CREATE INDEX IF NOT EXISTS idx_ecommerce_orders_data
+         ON {schema}.ecommerce_orders (data)
+      '''))
+      self.connection.commit()
+
+   def upsert_ecommerce_orders(self, df: pd.DataFrame) -> int:
+      """Insere pedidos de e-commerce de forma idempotente (ignora email_id já existente)."""
+      if df is None or df.empty:
+         return 0
+
+      self.ensure_ecommerce_orders_table()
+      schema = self._schema()
+      stmt = text(f'''
+         INSERT INTO {schema}.ecommerce_orders (data, origem, pedido_id, descricao, valor, email_id)
+         VALUES (:data, :origem, :pedido_id, :descricao, :valor, :email_id)
+         ON CONFLICT (email_id) DO NOTHING
+      ''')
+
+      records = []
+      for _, row in df.iterrows():
+         email_id = str(row.get('email_id', '')).strip()
+         if not email_id:
+            continue
+         records.append({
+            'data': row['data'],
+            'origem': str(row['origem']).strip(),
+            'pedido_id': str(row['pedido_id']).strip(),
+            'descricao': str(row['descricao']).strip(),
+            'valor': round(float(row['valor']), 2),
+            'email_id': email_id,
+         })
+
+      if not records:
+         return 0
+
+      result = self.connection.execute(stmt, records)
+      self.connection.commit()
+      return int(result.rowcount or 0)
+
+   def get_ecommerce_orders(self, days: int = 120, origem: str | None = None) -> pd.DataFrame:
+      """Retorna pedidos de e-commerce armazenados nos últimos `days` dias."""
+      self.ensure_ecommerce_orders_table()
+      schema = self._schema()
+      where_clauses = ["data >= CURRENT_DATE - (:days * INTERVAL '1 day')"]
+      params: dict = {'days': int(days)}
+
+      if origem:
+         where_clauses.append("LOWER(origem) = LOWER(:origem)")
+         params['origem'] = origem.strip()
+
+      query = text(f'''
+         SELECT data, origem, pedido_id, descricao, valor, email_id
+         FROM {schema}.ecommerce_orders
+         WHERE {' AND '.join(where_clauses)}
+         ORDER BY data DESC, id DESC
+      ''')
+      result = self.connection.execute(query, params)
+      df_res = pd.DataFrame(result.fetchall(), columns=result.keys())
+      if not df_res.empty:
+         df_res['valor'] = df_res['valor'].astype(float)
+      return df_res
