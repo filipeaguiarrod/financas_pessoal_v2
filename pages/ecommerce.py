@@ -127,12 +127,24 @@ with tab_enrich:
                             enriched_df.at[row_idx, "_source"] = reclass.at[0, "_source"]
 
             st.markdown("#### 📋 Resultado da Fatura Enriquecida")
+            st.markdown(
+                '<small>'
+                '<span style="color:#2E7D32">■ Enriquecido</span>&nbsp;&nbsp;'
+                '<span style="color:#E65100">■ Ambíguo / Modelo</span>&nbsp;&nbsp;'
+                '<span style="color:#C62828">■ Sem Match</span>&nbsp;&nbsp;|&nbsp;&nbsp;'
+                '<span style="color:gray">■ Regras</span>&nbsp;&nbsp;'
+                '<span style="color:#1565C0">■ Histórico</span>'
+                '</small>',
+                unsafe_allow_html=True,
+            )
             only_amazon = st.toggle("Mostrar apenas lançamentos Amazon", value=False, key="toggle_only_amazon")
             view_df = enriched_df[amazon_mask].copy() if only_amazon else enriched_df.copy()
 
             export_cols = ["categoria", "Data", "Estabelecimento", "Valor"]
-            disp_df = credit_card.format_display_df(view_df[["categoria", "_source", "Data", "Estabelecimento", "Valor"]])
-            st.dataframe(credit_card.style_classified(disp_df), use_container_width=True, hide_index=True)
+            disp_df = credit_card.format_display_df(
+                view_df[["categoria", "_source", "match_status", "Data", "Estabelecimento", "Valor"]]
+            )
+            st.dataframe(ecommerce_enrichment.style_enriched(disp_df), use_container_width=True, hide_index=True)
 
             csv_out = credit_card.format_display_df(enriched_df[export_cols]).to_csv(index=False, sep="\t").encode("utf-8-sig")
             st.download_button(

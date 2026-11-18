@@ -190,3 +190,36 @@ def enrich_amazon_transactions(
                 df.at[orig_idx, "_source"] = reclassified.at[pos, "_source"]
 
     return df, ambiguous_map
+
+
+_MATCH_COLORS = {
+    "matched": "color: #2E7D32; font-weight: 600",
+    "matched_manual": "color: #2E7D32; font-weight: 600",
+    "ambiguo": "color: #E65100; font-weight: 600",
+    "sem_match": "color: #C62828",
+    "nao_amazon": "",
+}
+
+
+def style_enriched(df: pd.DataFrame):
+    """Aplica destaque de cor em Estabelecimento (match_status) e categoria (_source)."""
+    source = df["_source"].copy() if "_source" in df.columns else None
+    match_status = df["match_status"].copy() if "match_status" in df.columns else None
+
+    drop_cols = [c for c in ("_source", "match_status") if c in df.columns]
+    display_df = df.drop(columns=drop_cols)
+    styler = display_df.style
+
+    if source is not None and "categoria" in display_df.columns:
+        styler = styler.apply(
+            lambda _col: source.map(credit_card._SOURCE_COLORS).fillna(""),
+            subset=["categoria"],
+        )
+
+    if match_status is not None and "Estabelecimento" in display_df.columns:
+        styler = styler.apply(
+            lambda _col: match_status.map(_MATCH_COLORS).fillna(""),
+            subset=["Estabelecimento"],
+        )
+
+    return styler

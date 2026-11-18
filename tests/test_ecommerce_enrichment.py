@@ -5,6 +5,7 @@ from src.ecommerce_enrichment import (
     enrich_amazon_transactions,
     extract_installment_total,
     is_amazon_transaction,
+    style_enriched,
 )
 from src.ecommerce_sync import parse_sheet_records
 
@@ -135,3 +136,30 @@ def test_enrich_amazon_transactions_direct_installment_ambiguous_and_no_match():
     assert enriched.loc[3, "match_status"] == "sem_match"
     assert enriched.loc[4, "match_status"] == "nao_amazon"
     assert enriched.loc[4, "categoria"] == "Restaurante"
+
+
+def test_style_enriched_hides_internal_columns_and_applies_colors():
+    df = pd.DataFrame([
+        {
+            "categoria": "Casa / Ferramentas",
+            "_source": "modelo",
+            "match_status": "matched",
+            "Data": "2026-11-17",
+            "Estabelecimento": "AMAZON BR — Broca",
+            "Valor": "33,82",
+        },
+        {
+            "categoria": "Compras",
+            "_source": "historico",
+            "match_status": "sem_match",
+            "Data": "2026-11-10",
+            "Estabelecimento": "AMAZON BR",
+            "Valor": "99,99",
+        },
+    ])
+    styler = style_enriched(df)
+    assert list(styler.data.columns) == ["categoria", "Data", "Estabelecimento", "Valor"]
+    html = styler.to_html()
+    assert "#2E7D32" in html
+    assert "#C62828" in html
+    assert "#1565C0" in html
