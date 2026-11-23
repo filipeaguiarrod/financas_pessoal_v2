@@ -14,11 +14,16 @@ AMAZON_PATTERN = re.compile(r"\b(?:amazon|amzn)\b", re.IGNORECASE)
 INSTALLMENT_PATTERN = re.compile(r"(?:parcela\s+)?(\d{1,2})\s*/\s*(\d{1,2})", re.IGNORECASE)
 
 
-def is_amazon_transaction(estabelecimento: str) -> bool:
-    """Retorna True se o lançamento da fatura indicar compra na Amazon."""
+def is_amazon_transaction(estabelecimento: str, store_patterns: str | None = None) -> bool:
+    """Retorna True se o lançamento da fatura indicar compra na Amazon (ou padrões configurados)."""
     if not estabelecimento:
         return False
     text = str(estabelecimento).replace(".", " ")
+    if store_patterns:
+        tokens = [re.escape(p.strip()) for p in str(store_patterns).split(",") if p.strip()]
+        if tokens:
+            pat = re.compile(r"\b(?:" + "|".join(tokens) + r")\b", re.IGNORECASE)
+            return bool(pat.search(text))
     return bool(AMAZON_PATTERN.search(text))
 
 
@@ -59,15 +64,17 @@ def find_amazon_candidates(
     amazon_orders: pd.DataFrame,
     days_before: int = 2,
     days_after: int = 7,
+    value_tolerance: float = 0.05,
+    installment_tolerance: float = 0.20,
 ) -> list[dict]:
     """Busca pedidos da Amazon candidatos para uma transação da fatura."""
     if amazon_orders is None or amazon_orders.empty or inv_date is None:
         return []
 
     total_parcelas = extract_installment_total(estabelecimento)
-    targets = [(round(float(inv_value), 2), 0.05)]
+    targets = [(round(float(inv_value), 2), float(value_tolerance))]
     if total_parcelas:
-        targets.append((round(float(inv_value) * total_parcelas, 2), 0.20))
+        targets.append((round(float(inv_value) * total_parcelas, 2), float(installment_tolerance)))
 
     candidates: list[dict] = []
     seen_keys: set[tuple] = set()
@@ -117,6 +124,9 @@ def enrich_amazon_transactions(
     orders_df: pd.DataFrame,
     days_before: int = 2,
     days_after: int = 7,
+    value_tolerance: float = 0.05,
+    installment_tolerance: float = 0.20,
+    store_patterns: str | None = None,
     classify_fn: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, dict[int, list[dict]]]:
     """Faz de/para de lançamentos Amazon da fatura contra pedidos do banco e reclassifica.
@@ -148,7 +158,7 @@ def enrich_amazon_transactions(
 
     for idx, row in df.iterrows():
         estab = str(row.get("Estabelecimento", ""))
-        if not is_amazon_transaction(estab):
+        if not is_amazon_transaction(estab, store_patterns=store_patterns):
             continue
 
         inv_date = _to_date(row.get("Data"))
@@ -160,6 +170,8 @@ def enrich_amazon_transactions(
             amazon_orders=amazon_orders,
             days_before=days_before,
             days_after=days_after,
+            value_tolerance=value_tolerance,
+            installment_tolerance=installment_tolerance,
         )
 
         if not candidates:

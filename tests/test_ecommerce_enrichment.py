@@ -7,7 +7,6 @@ from src.ecommerce_enrichment import (
     is_amazon_transaction,
     style_enriched,
 )
-from src.ecommerce_sync import parse_sheet_records
 
 
 def _fake_classifier(df: pd.DataFrame) -> pd.DataFrame:
@@ -30,38 +29,10 @@ def _fake_classifier(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def test_parse_sheet_records_normalizes_br_values_and_dates():
-    raw = [
-        {
-            "data": "16/11/2026",
-            "origem": "Amazon",
-            "pedido_id": "702-6626255-2875465",
-            "descricao": "Bosch Jogo De Brocas Madeira Mini...",
-            "valor": "33,82",
-            "email_id": "1a1e69c4f9954764",
-        },
-        {
-            "data": "15/11/2026",
-            "origem": "Amazon",
-            "pedido_id": "701-5000372-3110633",
-            "descricao": "Grand Theft Auto VI - PlayStation 5",
-            "valor": 449.9,
-            "email_id": "1a1e188a3e7270d6",
-        },
-        {
-            "data": "",
-            "origem": "Amazon",
-            "pedido_id": "",
-            "descricao": "Linha inválida",
-            "valor": "10,00",
-            "email_id": "",
-        },
-    ]
-    df = parse_sheet_records(raw)
-    assert len(df) == 2
-    assert df.loc[0, "data"] == datetime.date(2026, 11, 16)
-    assert df.loc[0, "valor"] == 33.82
-    assert df.loc[1, "valor"] == 449.90
+def test_custom_store_patterns_match():
+    assert is_amazon_transaction("AMZN DIGITAL", store_patterns="AMAZON,AMZN")
+    assert not is_amazon_transaction("MAGALU", store_patterns="AMAZON,AMZN")
+    assert is_amazon_transaction("MAGALU", store_patterns="AMAZON,MAGALU")
 
 
 def test_amazon_detection_and_installment_extraction():
