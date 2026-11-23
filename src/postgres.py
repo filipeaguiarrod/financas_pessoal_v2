@@ -126,3 +126,156 @@ class PostgresUploader:
          {'id': rule_id}
       )
       self.connection.commit()
+
+   def _schema(self) -> str:
+      return self.db_schema or 'financials'
+
+   def ensure_ecommerce_orders_table(self):
+      schema = self._schema()
+      self.connection.execute(text(f'''
+         CREATE TABLE IF NOT EXISTS {schema}.ecommerce_orders (
+            id         SERIAL PRIMARY KEY,
+            data       DATE NOT NULL,
+            origem     TEXT NOT NULL,
+            pedido_id  TEXT NOT NULL,
+            descricao  TEXT NOT NULL,
+            valor      NUMERIC(12, 2) NOT NULL,
+            email_id   TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT NOW()
+         )
+      '''))
+      self.connection.execute(text(f'''
+         CREATE INDEX IF NOT EXISTS idx_ecommerce_orders_data
+         ON {schema}.ecommerce_orders (data)
+      '''))
+      self.connection.commit()
+
+   def upsert_ecommerce_orders(self, df: pd.DataFrame) -> int:
+      """Insere pedidos de e-commerce de forma idempotente (ignora email_id já existente)."""
+      if df is None or df.empty:
+         return 0
+
+      self.ensure_ecommerce_orders_table()
+      schema = self._schema()
+      stmt = text(f'''
+         INSERT INTO {schema}.ecommerce_orders (data, origem, pedido_id, descricao, valor, email_id)
+         VALUES (:data, :origem, :pedido_id, :descricao, :valor, :email_id)
+         ON CONFLICT (email_id) DO NOTHING
+      ''')
+
+      records = []
+      for _, row in df.iterrows():
+         email_id = str(row.get('email_id', '')).strip()
+         if not email_id:
+            continue
+         records.append({
+            'data': row['data'],
+            'origem': str(row['origem']).strip(),
+            'pedido_id': str(row['pedido_id']).strip(),
+            'descricao': str(row['descricao']).strip(),
+            'valor': round(float(row['valor']), 2),
+            'email_id': email_id,
+         })
+
+      if not records:
+         return 0
+
+      result = self.connection.execute(stmt, records)
+      self.connection.commit()
+      return int(result.rowcount or 0)
+
+   def get_ecommerce_orders(self, days: int = 120, origem: str | None = None) -> pd.DataFrame:
+      """Retorna pedidos de e-commerce armazenados nos últimos `days` dias."""
+      self.ensure_ecommerce_orders_table()
+      schema = self._schema()
+      where_clauses = ["data >= CURRENT_DATE - (:days * INTERVAL '1 day')"]
+      params: dict = {'days': int(days)}
+
+      if origem:
+         where_clauses.append("LOWER(origem) = LOWER(:origem)")
+         params['origem'] = origem.strip()
+
+      query = text(f'''
+         SELECT data, origem, pedido_id, descricao, valor, email_id
+         FROM {schema}.ecommerce_orders
+         WHERE {' AND '.join(where_clauses)}
+         ORDER BY data DESC, id DESC
+      ''')
+      result = self.connection.execute(query, params)
+      df_res = pd.DataFrame(result.fetchall(), columns=result.keys())
+      if not df_res.empty:
+         df_res['valor'] = df_res['valor'].astype(float)
+      return df_res
+
+   def ensure_ecommerce_matching_config_table(self):
+      schema = self._schema()
+      self.connection.execute(text(f'''
+         CREATE TABLE IF NOT EXISTS {schema}.ecommerce_matching_config (
+            id                    INTEGER PRIMARY KEY DEFAULT 1,
+            days_before           INTEGER NOT NULL DEFAULT 2,
+            days_after            INTEGER NOT NULL DEFAULT 7,
+            value_tolerance       NUMERIC(8, 2) NOT NULL DEFAULT 0.05,
+            installment_tolerance NUMERIC(8, 2) NOT NULL DEFAULT 0.20,
+            store_patterns        TEXT NOT NULL DEFAULT 'AMAZON,AMZN',
+            updated_at            TIMESTAMP DEFAULT NOW()
+         )
+      '''))
+      self.connection.commit()
+
+   def get_ecommerce_matching_config(self) -> dict:
+      defaults = {
+         'days_before': 2,
+         'days_after': 7,
+         'value_tolerance': 0.05,
+         'installment_tolerance': 0.20,
+         'store_patterns': 'AMAZON,AMZN',
+      }
+      try:
+         self.ensure_ecommerce_matching_config_table()
+         schema = self._schema()
+         row = self.connection.execute(text(f'''
+            SELECT days_before, days_after, value_tolerance, installment_tolerance, store_patterns
+            FROM {schema}.ecommerce_matching_config
+            WHERE id = 1
+         ''')).fetchone()
+         if row:
+            return {
+               'days_before': int(row[0]),
+               'days_after': int(row[1]),
+               'value_tolerance': float(row[2]),
+               'installment_tolerance': float(row[3]),
+               'store_patterns': str(row[4]),
+            }
+      except Exception:
+         pass
+      return defaults
+
+   def save_ecommerce_matching_config(
+      self,
+      days_before: int,
+      days_after: int,
+      value_tolerance: float,
+      installment_tolerance: float,
+      store_patterns: str,
+   ):
+      self.ensure_ecommerce_matching_config_table()
+      schema = self._schema()
+      self.connection.execute(text(f'''
+         INSERT INTO {schema}.ecommerce_matching_config
+            (id, days_before, days_after, value_tolerance, installment_tolerance, store_patterns, updated_at)
+         VALUES (1, :db, :da, :vt, :it, :sp, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+            days_before = EXCLUDED.days_before,
+            days_after = EXCLUDED.days_after,
+            value_tolerance = EXCLUDED.value_tolerance,
+            installment_tolerance = EXCLUDED.installment_tolerance,
+            store_patterns = EXCLUDED.store_patterns,
+            updated_at = NOW()
+      '''), {
+         'db': int(days_before),
+         'da': int(days_after),
+         'vt': round(float(value_tolerance), 2),
+         'it': round(float(installment_tolerance), 2),
+         'sp': str(store_patterns).strip() or 'AMAZON,AMZN',
+      })
+      self.connection.commit()

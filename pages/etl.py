@@ -325,3 +325,67 @@ else:
                     
     except Exception as e:
         st.error(f"Erro ao consultar dados: {e}")
+
+st.divider()
+st.subheader("🛒 Sincronização E-commerce (Sheets → DB) & Regras de Matching")
+st.caption("Ingestão via API Backend (`POST /sync-ecommerce`) e configuração das regras usadas pelo motor de de/para na aba Bancos.")
+
+col_ec1, col_ec2 = st.columns([1, 1.3], gap="large")
+
+with col_ec1:
+    if st.button("🔄 Sincronizar Pedidos E-commerce", use_container_width=True, key="btn_etl_sync_ecommerce"):
+        try:
+            with st.spinner("Sincronizando Pedidos_Ecommerce via API Backend..."):
+                sync_resp = requests.post(f"{API_URL}/sync-ecommerce", timeout=30)
+            if sync_resp.status_code == 200:
+                payload = sync_resp.json()
+                st.success(
+                    f"Sync concluído: **{payload.get('total_sheet', 0)}** pedido(s) lido(s), "
+                    f"**{payload.get('inserted', 0)}** novo(s) inserido(s)."
+                )
+            else:
+                st.error(f"Falha no sync ({sync_resp.status_code}): {sync_resp.text}")
+        except Exception as e:
+            st.error(f"Erro ao chamar /sync-ecommerce: {e}")
+
+    if db_conn_ok:
+        try:
+            ec_orders = psql.get_ecommerce_orders(days=120, origem="Amazon")
+            st.info(f"📦 **{len(ec_orders)} pedido(s) Amazon** em `ecommerce_orders` (últimos 120 dias).")
+            if not ec_orders.empty:
+                with st.expander("Visualizar pedidos sincronizados", expanded=False):
+                    st.dataframe(
+                        ec_orders[["data", "pedido_id", "descricao", "valor"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        except Exception as e:
+            st.warning(f"Não foi possível consultar ecommerce_orders: {e}")
+
+with col_ec2:
+    if db_conn_ok:
+        cfg = psql.get_ecommerce_matching_config()
+        with st.form("ecommerce_matching_rules_form"):
+            st.markdown("**Regras de Matching (Motor em `src/ecommerce_enrichment.py`)**")
+            r1, r2 = st.columns(2)
+            with r1:
+                cfg_days_before = st.number_input("Dias antes do pedido", min_value=0, max_value=15, value=int(cfg["days_before"]))
+                cfg_val_tol = st.number_input("Tolerância valor direto (R$)", min_value=0.0, max_value=5.0, value=float(cfg["value_tolerance"]), step=0.01)
+            with r2:
+                cfg_days_after = st.number_input("Dias após o pedido", min_value=0, max_value=30, value=int(cfg["days_after"]))
+                cfg_inst_tol = st.number_input("Tolerância valor parcelado (R$)", min_value=0.0, max_value=5.0, value=float(cfg["installment_tolerance"]), step=0.05)
+
+            cfg_patterns = st.text_input(
+                "Padrões de estabelecimento (separados por vírgula)",
+                value=cfg["store_patterns"],
+                help="Termos buscados no lançamento da fatura para acionar o de/para.",
+            )
+            if st.form_submit_button("💾 Salvar Regras de Matching", use_container_width=True):
+                psql.save_ecommerce_matching_config(
+                    days_before=int(cfg_days_before),
+                    days_after=int(cfg_days_after),
+                    value_tolerance=float(cfg_val_tol),
+                    installment_tolerance=float(cfg_inst_tol),
+                    store_patterns=cfg_patterns,
+                )
+                st.success("Regras de matching salvas no banco de dados!")

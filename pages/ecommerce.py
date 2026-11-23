@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import logging
+from src import credit_card, ecommerce_enrichment, ecommerce_sync, postgres
 from src.scrapers import (
     extract_shoppe_data,
     extract_amazon_data,
@@ -12,12 +13,150 @@ st.set_page_config(page_title='Ecommerce', layout='wide')
 
 Navbar()
 
-st.title("🛒 Extrator de Pedidos de Ecommerce")
+st.title("🛒 Ecommerce & Enriquecimento de Fatura")
 st.markdown(
-    "Cole o HTML ou elementos copiados via Inspecionar Elemento (DevTools) para visualizar seus pedidos."
+    "Sincronize seus pedidos da Amazon com o banco de dados, faça o de/para automático na fatura ou extraia pedidos via HTML."
 )
 
-tab_shopee, tab_amazon, tab_ml = st.tabs(["🛍️ Shopee", "📦 Amazon", "💛 Mercado Livre"])
+tab_enrich, tab_shopee, tab_amazon, tab_ml = st.tabs([
+    "🔄 Enriquecer Fatura (Amazon)",
+    "🛍️ Shopee",
+    "📦 Amazon (HTML)",
+    "💛 Mercado Livre",
+])
+
+with tab_enrich:
+    st.subheader("1. Base de Pedidos Amazon (Sheets → Postgres)")
+    col_sync1, col_sync2 = st.columns([1, 2])
+    with col_sync1:
+        if st.button("🔄 Sincronizar Planilha → DB", use_container_width=True, key="btn_sync_ecommerce"):
+            try:
+                with st.spinner("Sincronizando pedidos do Google Sheets para o PostgreSQL..."):
+                    res = ecommerce_sync.sync_ecommerce_orders_to_db()
+                st.success(
+                    f"Sincronização concluída: **{res['total_sheet']}** pedido(s) lido(s), "
+                    f"**{res['inserted']}** novo(s) inserido(s) no banco."
+                )
+            except Exception as e:
+                st.error("Erro ao sincronizar planilha com o banco. Verifique a configuração no .env e as permissões.")
+                logging.error(f"Erro no sync ecommerce: {e}")
+
+    orders_df = pd.DataFrame()
+    try:
+        psql = postgres.PostgresUploader()
+        orders_df = psql.get_ecommerce_orders(days=120, origem="Amazon")
+        with col_sync2:
+            st.info(f"📦 **{len(orders_df)} pedido(s) Amazon** disponíveis no banco (últimos 120 dias).")
+    except Exception as e:
+        with col_sync2:
+            st.warning("Não foi possível consultar a tabela de pedidos no PostgreSQL.")
+        logging.error(f"Erro ao consultar ecommerce_orders: {e}")
+
+    if not orders_df.empty:
+        with st.expander("Visualizar pedidos Amazon salvos no DB", expanded=False):
+            st.dataframe(orders_df[["data", "pedido_id", "descricao", "valor"]], use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("2. De/Para Automático na Fatura")
+    cc_file = st.file_uploader(
+        "Suba a fatura do cartão (.csv — Nubank ou XP Investimentos)",
+        type=["csv"],
+        key="enrich_cc_uploader",
+    )
+
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+        days_before = st.number_input("Dias antes do pedido (tolerância)", min_value=0, max_value=15, value=2)
+    with col_w2:
+        days_after = st.number_input("Dias após o pedido (cobrança no envio)", min_value=0, max_value=30, value=7)
+
+    if cc_file is not None:
+        try:
+            with st.spinner("Processando fatura e cruzando lançamentos Amazon..."):
+                invoice = credit_card.process_credit_card_invoice(cc_file)
+                df_class = credit_card.classify_invoice(invoice.df)
+                enriched_df, ambiguous_map = ecommerce_enrichment.enrich_amazon_transactions(
+                    df_class,
+                    orders_df,
+                    days_before=int(days_before),
+                    days_after=int(days_after),
+                )
+
+            amazon_mask = enriched_df["match_status"] != "nao_amazon"
+            total_amz = int(amazon_mask.sum())
+            matched_cnt = int((enriched_df["match_status"] == "matched").sum())
+            ambig_cnt = int((enriched_df["match_status"] == "ambiguo").sum())
+            no_match_cnt = int((enriched_df["match_status"] == "sem_match").sum())
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Lançamentos Amazon", total_amz)
+            m2.metric("Enriquecidos (Auto)", matched_cnt)
+            m3.metric("Ambíguos", ambig_cnt)
+            m4.metric("Sem Match", no_match_cnt)
+
+            if ambiguous_map:
+                st.markdown("#### ⚠️ Resolução de Casos Ambíguos")
+                st.caption("Mais de um pedido com o mesmo valor foi encontrado na janela de datas. Selecione o produto correto:")
+                for row_idx, candidates in ambiguous_map.items():
+                    orig_estab = enriched_df.at[row_idx, "Estabelecimento"]
+                    orig_val = enriched_df.at[row_idx, "Valor"]
+                    orig_dt = enriched_df.at[row_idx, "Data"]
+                    options = ["-- Manter original --"] + [
+                        f"{c['descricao']} (Pedido {c['pedido_id']} | {c['data']} | R$ {c['valor']:.2f})"
+                        for c in candidates
+                    ]
+                    choice = st.selectbox(
+                        f"{orig_dt} | {orig_estab} | R$ {orig_val:.2f}",
+                        options=options,
+                        key=f"ambig_choice_{row_idx}",
+                    )
+                    if choice != "-- Manter original --":
+                        sel_idx = options.index(choice) - 1
+                        chosen = candidates[sel_idx]
+                        enriched_df.at[row_idx, "Estabelecimento"] = f"{orig_estab} — {chosen['descricao']}"
+                        enriched_df.at[row_idx, "match_status"] = "matched_manual"
+                        enriched_df.at[row_idx, "pedido_id"] = chosen["pedido_id"]
+                        enriched_df.at[row_idx, "descricao_produto"] = chosen["descricao"]
+                        reclass = credit_card.classify_invoice(pd.DataFrame([{
+                            "Data": orig_dt,
+                            "Estabelecimento": chosen["descricao"],
+                            "Valor": orig_val,
+                        }]))
+                        enriched_df.at[row_idx, "categoria"] = reclass.at[0, "categoria"]
+                        if "_source" in reclass.columns:
+                            enriched_df.at[row_idx, "_source"] = reclass.at[0, "_source"]
+
+            st.markdown("#### 📋 Resultado da Fatura Enriquecida")
+            st.markdown(
+                '<small>'
+                '<span style="color:#2E7D32">■ Enriquecido</span>&nbsp;&nbsp;'
+                '<span style="color:#E65100">■ Ambíguo / Modelo</span>&nbsp;&nbsp;'
+                '<span style="color:#C62828">■ Sem Match</span>&nbsp;&nbsp;|&nbsp;&nbsp;'
+                '<span style="color:gray">■ Regras</span>&nbsp;&nbsp;'
+                '<span style="color:#1565C0">■ Histórico</span>'
+                '</small>',
+                unsafe_allow_html=True,
+            )
+            only_amazon = st.toggle("Mostrar apenas lançamentos Amazon", value=False, key="toggle_only_amazon")
+            view_df = enriched_df[amazon_mask].copy() if only_amazon else enriched_df.copy()
+
+            export_cols = ["categoria", "Data", "Estabelecimento", "Valor"]
+            disp_df = credit_card.format_display_df(
+                view_df[["categoria", "_source", "match_status", "Data", "Estabelecimento", "Valor"]]
+            )
+            st.dataframe(ecommerce_enrichment.style_enriched(disp_df), use_container_width=True, hide_index=True)
+
+            csv_out = credit_card.format_display_df(enriched_df[export_cols]).to_csv(index=False, sep="\t").encode("utf-8-sig")
+            st.download_button(
+                label="📥 Baixar Fatura Enriquecida (TSV p/ Sheets)",
+                data=csv_out,
+                file_name="fatura_enriquecida_amazon.tsv",
+                mime="text/tab-separated-values",
+                key="dl_enriched_tsv",
+            )
+        except Exception as e:
+            st.error(f"Erro ao enriquecer fatura: {e}")
+            logging.error(f"Erro enriquecimento Amazon: {e}")
 
 with tab_shopee:
     st.subheader("Pedidos da Shopee")

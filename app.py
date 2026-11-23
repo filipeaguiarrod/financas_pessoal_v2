@@ -1,7 +1,7 @@
 import logging
 import streamlit as st
 import pandas as pd
-from src import credit_card, checking_account, installments
+from src import credit_card, checking_account, installments, ecommerce_enrichment, postgres
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -71,21 +71,86 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
             st.success(f"Fatura identificada: **{invoice.bank_name}**")
             st.metric("Valor Parcial", round(invoice.total_amount, 2))
 
-            col_t1, col_t2 = st.columns(2)
+            col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1:
                 classify = st.toggle("*Classificar transações ?*", value=False, key='cc_classifier')
             with col_t2:
+                enrich_ecommerce = st.toggle("*Enriquecer ecommerce ?*", value=False, key='cc_enrich_ecommerce')
+            with col_t3:
                 show_installments = False
                 if invoice.has_installments:
                     show_installments = st.toggle("Analisar parcelas", key='cc_installments')
 
-            if classify:
-                df_class = credit_card.classify_invoice(invoice.df)
+            base_df = credit_card.classify_invoice(invoice.df) if classify else invoice.df.copy()
+
+            if enrich_ecommerce:
+                psql = postgres.PostgresUploader()
+                orders_df = psql.get_ecommerce_orders(days=120, origem="Amazon")
+                cfg = psql.get_ecommerce_matching_config()
+                no_reclass = (lambda d: pd.DataFrame({"categoria": [None] * len(d), "_source": [None] * len(d)}))
+                enriched_df, ambiguous_map = ecommerce_enrichment.enrich_amazon_transactions(
+                    base_df,
+                    orders_df,
+                    days_before=cfg["days_before"],
+                    days_after=cfg["days_after"],
+                    value_tolerance=cfg["value_tolerance"],
+                    installment_tolerance=cfg["installment_tolerance"],
+                    store_patterns=cfg["store_patterns"],
+                    classify_fn=credit_card.classify_invoice if classify else no_reclass,
+                )
+
+                if ambiguous_map:
+                    st.caption("Casos ambíguos encontrados — selecione o produto correspondente:")
+                    for row_idx, candidates in ambiguous_map.items():
+                        orig_estab = enriched_df.at[row_idx, "Estabelecimento"]
+                        orig_val = enriched_df.at[row_idx, "Valor"]
+                        orig_dt = enriched_df.at[row_idx, "Data"]
+                        options = ["-- Manter original --"] + [
+                            f"{c['descricao']} (Pedido {c['pedido_id']} | {c['data']} | R$ {c['valor']:.2f})"
+                            for c in candidates
+                        ]
+                        choice = st.selectbox(
+                            f"{orig_dt} | {orig_estab} | R$ {orig_val:.2f}",
+                            options=options,
+                            key=f"cc_ambig_{row_idx}",
+                        )
+                        if choice != "-- Manter original --":
+                            chosen = candidates[options.index(choice) - 1]
+                            enriched_df.at[row_idx, "Estabelecimento"] = f"{orig_estab} — {chosen['descricao']}"
+                            enriched_df.at[row_idx, "match_status"] = "matched_manual"
+                            if classify:
+                                reclass = credit_card.classify_invoice(pd.DataFrame([{
+                                    "Data": orig_dt,
+                                    "Estabelecimento": chosen["descricao"],
+                                    "Valor": orig_val,
+                                }]))
+                                enriched_df.at[row_idx, "categoria"] = reclass.at[0, "categoria"]
+                                if "_source" in reclass.columns:
+                                    enriched_df.at[row_idx, "_source"] = reclass.at[0, "_source"]
+
+                st.markdown(
+                    '<small>'
+                    '<span style="color:#2E7D32">■ Enriquecido</span>&nbsp;&nbsp;'
+                    '<span style="color:#E65100">■ Ambíguo / Modelo</span>&nbsp;&nbsp;'
+                    '<span style="color:#C62828">■ Sem Match</span>&nbsp;&nbsp;|&nbsp;&nbsp;'
+                    '<span style="color:gray">■ Regras</span>&nbsp;&nbsp;'
+                    '<span style="color:#1565C0">■ Histórico</span>'
+                    '</small>',
+                    unsafe_allow_html=True,
+                )
+                cols_show = (
+                    ["categoria", "_source", "match_status", "Data", "Estabelecimento", "Valor"]
+                    if classify
+                    else ["match_status", "Data", "Estabelecimento", "Valor"]
+                )
+                disp_df = credit_card.format_display_df(enriched_df[cols_show])
+                st.dataframe(ecommerce_enrichment.style_enriched(disp_df), use_container_width=True)
+            elif classify:
                 classification_legend()
-                disp_df = credit_card.format_display_df(df_class)
+                disp_df = credit_card.format_display_df(base_df)
                 st.dataframe(credit_card.style_classified(disp_df), use_container_width=True)
             else:
-                disp_df = credit_card.format_display_df(invoice.df)
+                disp_df = credit_card.format_display_df(base_df)
                 st.dataframe(disp_df, use_container_width=True)
 
             if show_installments:
