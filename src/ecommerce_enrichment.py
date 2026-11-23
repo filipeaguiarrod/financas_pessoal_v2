@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import datetime
+import itertools
 import re
 from typing import Callable
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 
 from . import credit_card
 
 AMAZON_PATTERN = re.compile(r"\b(?:amazon|amzn)\b", re.IGNORECASE)
-INSTALLMENT_PATTERN = re.compile(r"(?:parcela\s+)?(\d{1,2})\s*/\s*(\d{1,2})", re.IGNORECASE)
+INSTALLMENT_PATTERN = re.compile(
+    r"(?:parcela\s+)?(\d{1,2})\s*(?:/|de)\s*(\d{1,2})", re.IGNORECASE
+)
 
 
 def is_amazon_transaction(estabelecimento: str, store_patterns: str | None = None) -> bool:
@@ -27,15 +31,36 @@ def is_amazon_transaction(estabelecimento: str, store_patterns: str | None = Non
     return bool(AMAZON_PATTERN.search(text))
 
 
-def extract_installment_total(estabelecimento: str) -> int | None:
-    """Extrai o total de parcelas (Y de X/Y) quando presente no descritivo."""
-    if not estabelecimento:
+def extract_installment_info(text: str) -> tuple[int, int] | None:
+    """Extrai (parcela_atual, total_parcelas) de textos como 'Parcela 1/2' ou '2 de 3'."""
+    if not text:
         return None
-    match = INSTALLMENT_PATTERN.search(str(estabelecimento))
+    match = INSTALLMENT_PATTERN.search(str(text))
     if not match:
         return None
-    total = int(match.group(2))
-    return total if total > 1 else None
+    curr, total = int(match.group(1)), int(match.group(2))
+    return (curr, total) if total > 1 and 1 <= curr <= total else None
+
+
+def extract_installment_total(estabelecimento: str) -> int | None:
+    """Extrai o total de parcelas (Y de X/Y) quando presente no descritivo."""
+    info = extract_installment_info(estabelecimento)
+    return info[1] if info else None
+
+
+def _get_raw_installment_info(raw_df: pd.DataFrame | None, row_idx: int, fallback_text: str) -> tuple[int, int] | None:
+    """Recupera (parcela_atual, total_parcelas) do raw_df (Nubank 'title' ou XP 'Parcela')."""
+    info = extract_installment_info(fallback_text)
+    if info or raw_df is None or row_idx not in raw_df.index:
+        return info
+
+    raw_row = raw_df.loc[row_idx]
+    for col in ("Parcela", "title", "Estabelecimento"):
+        if col in raw_df.columns:
+            info = extract_installment_info(str(raw_row.get(col, "")))
+            if info:
+                return info
+    return None
 
 
 def _to_date(val) -> datetime.date | None:
@@ -57,25 +82,15 @@ def _to_date(val) -> datetime.date | None:
     return None if pd.isna(parsed) else parsed.date()
 
 
-def find_amazon_candidates(
-    inv_date: datetime.date | None,
-    inv_value: float,
-    estabelecimento: str,
+def _search_in_window(
+    target_date: datetime.date,
+    targets: list[tuple[float, float]],
     amazon_orders: pd.DataFrame,
-    days_before: int = 2,
-    days_after: int = 7,
-    value_tolerance: float = 0.05,
-    installment_tolerance: float = 0.20,
+    days_before: int,
+    days_after: int,
+    is_refund: bool = False,
+    implicit_divisors: bool = False,
 ) -> list[dict]:
-    """Busca pedidos da Amazon candidatos para uma transação da fatura."""
-    if amazon_orders is None or amazon_orders.empty or inv_date is None:
-        return []
-
-    total_parcelas = extract_installment_total(estabelecimento)
-    targets = [(round(float(inv_value), 2), float(value_tolerance))]
-    if total_parcelas:
-        targets.append((round(float(inv_value) * total_parcelas, 2), float(installment_tolerance)))
-
     candidates: list[dict] = []
     seen_keys: set[tuple] = set()
 
@@ -84,23 +99,34 @@ def find_amazon_candidates(
         if ord_date is None:
             continue
 
-        delta_days = (inv_date - ord_date).days
+        delta_days = (target_date - ord_date).days
         if not (-days_before <= delta_days <= days_after):
             continue
 
         ord_val = round(float(order.get("valor", 0.0)), 2)
         matched_diff = None
+
         for target_val, tol in targets:
             diff = abs(ord_val - target_val)
             if diff <= tol:
                 matched_diff = diff
                 break
 
+        if matched_diff is None and implicit_divisors and targets:
+            base_val, tol = targets[0]
+            if base_val > 0 and ord_val > base_val:
+                for k in range(2, 13):
+                    if abs((ord_val / k) - base_val) <= tol:
+                        matched_diff = round(abs((ord_val / k) - base_val), 2)
+                        break
+
         if matched_diff is None:
             continue
 
         pedido_id = str(order.get("pedido_id", "")).strip()
         descricao = str(order.get("descricao", "")).strip()
+        if is_refund:
+            descricao = f"[Estorno] {descricao}"
         key = (pedido_id, descricao, ord_val)
         if key in seen_keys:
             continue
@@ -119,6 +145,117 @@ def find_amazon_candidates(
     return candidates
 
 
+def _find_combo_candidates(
+    target_date: datetime.date,
+    target_val: float,
+    amazon_orders: pd.DataFrame,
+    days_before: int,
+    days_after: int,
+    tol: float,
+) -> list[dict]:
+    """Tenta casar uma cobrança única com a soma de 2 a 4 pedidos na mesma janela."""
+    window_orders = []
+    for _, order in amazon_orders.iterrows():
+        ord_date = _to_date(order.get("data"))
+        if ord_date is None:
+            continue
+        delta_days = (target_date - ord_date).days
+        if -days_before <= delta_days <= days_after:
+            window_orders.append({
+                "pedido_id": str(order.get("pedido_id", "")).strip(),
+                "descricao": str(order.get("descricao", "")).strip(),
+                "valor": round(float(order.get("valor", 0.0)), 2),
+                "data": ord_date,
+            })
+
+    if len(window_orders) < 2 or len(window_orders) > 15:
+        return []
+
+    combos: list[dict] = []
+    for size in range(2, min(4, len(window_orders)) + 1):
+        for comb in itertools.combinations(window_orders, size):
+            total = round(sum(item["valor"] for item in comb), 2)
+            diff = abs(total - target_val)
+            if diff <= tol:
+                combos.append({
+                    "pedido_id": ", ".join(dict.fromkeys(i["pedido_id"] for i in comb if i["pedido_id"])),
+                    "descricao": " + ".join(i["descricao"] for i in comb),
+                    "valor": total,
+                    "data": max(i["data"] for i in comb),
+                    "delta_days": abs((target_date - max(i["data"] for i in comb)).days),
+                    "valor_diff": round(diff, 2),
+                })
+        if combos:
+            break
+
+    combos.sort(key=lambda c: (c["delta_days"], c["valor_diff"]))
+    return combos
+
+
+def find_amazon_candidates(
+    inv_date: datetime.date | None,
+    inv_value: float,
+    estabelecimento: str,
+    amazon_orders: pd.DataFrame,
+    days_before: int = 2,
+    days_after: int = 7,
+    value_tolerance: float = 0.05,
+    installment_tolerance: float = 0.20,
+    installment_info: tuple[int, int] | None = None,
+) -> list[dict]:
+    """Busca pedidos da Amazon candidatos para uma transação da fatura."""
+    if amazon_orders is None or amazon_orders.empty or inv_date is None:
+        return []
+
+    is_refund = float(inv_value) < 0
+    abs_val = round(abs(float(inv_value)), 2)
+
+    info = installment_info or extract_installment_info(estabelecimento)
+    targets = [(abs_val, float(value_tolerance))]
+    if info and not is_refund:
+        targets.append((round(abs_val * info[1], 2), float(installment_tolerance)))
+
+    # 1) Busca direta (valor exato ou parcela X/Y na janela normal)
+    candidates = _search_in_window(
+        inv_date, targets, amazon_orders, days_before, days_after, is_refund=is_refund
+    )
+    if candidates:
+        return candidates
+
+    # 2) Se for parcela X/Y com X > 1, busca deslocando (X - 1) meses para trás
+    if info and info[0] > 1 and not is_refund:
+        shifted_date = inv_date - relativedelta(months=info[0] - 1)
+        candidates = _search_in_window(
+            shifted_date,
+            [(round(abs_val * info[1], 2), float(installment_tolerance))],
+            amazon_orders,
+            days_before,
+            days_after,
+        )
+        if candidates:
+            return candidates
+
+    # 3) Fallback: parcela implícita (order.valor / k == abs_val)
+    if not is_refund:
+        candidates = _search_in_window(
+            inv_date,
+            [(abs_val, float(value_tolerance))],
+            amazon_orders,
+            days_before,
+            days_after,
+            implicit_divisors=True,
+        )
+        if candidates:
+            return candidates
+
+        # 4) Fallback: combo de carrinho (soma de 2 a 4 pedidos na janela)
+        return _find_combo_candidates(
+            inv_date, abs_val, amazon_orders, days_before, days_after, float(value_tolerance)
+        )
+
+    return []
+
+
 def enrich_amazon_transactions(
     invoice_df: pd.DataFrame,
     orders_df: pd.DataFrame,
@@ -127,14 +264,10 @@ def enrich_amazon_transactions(
     value_tolerance: float = 0.05,
     installment_tolerance: float = 0.20,
     store_patterns: str | None = None,
+    raw_df: pd.DataFrame | None = None,
     classify_fn: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, dict[int, list[dict]]]:
-    """Faz de/para de lançamentos Amazon da fatura contra pedidos do banco e reclassifica.
-
-    Retorna:
-    - DataFrame enriquecido com colunas ['categoria', '_source', 'Data', 'Estabelecimento', 'Valor', 'match_status', 'pedido_id', 'descricao_produto']
-    - Dicionário {row_index: [candidatos]} para linhas ambíguas.
-    """
+    """Faz de/para de lançamentos Amazon da fatura contra pedidos do banco e reclassifica."""
     df = invoice_df.copy().reset_index(drop=True)
     if "categoria" not in df.columns:
         df["categoria"] = None
@@ -163,6 +296,7 @@ def enrich_amazon_transactions(
 
         inv_date = _to_date(row.get("Data"))
         inv_val = round(float(row.get("Valor", 0.0)), 2)
+        inst_info = _get_raw_installment_info(raw_df, idx, estab)
         candidates = find_amazon_candidates(
             inv_date=inv_date,
             inv_value=inv_val,
@@ -172,6 +306,7 @@ def enrich_amazon_transactions(
             days_after=days_after,
             value_tolerance=value_tolerance,
             installment_tolerance=installment_tolerance,
+            installment_info=inst_info,
         )
 
         if not candidates:

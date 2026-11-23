@@ -96,6 +96,7 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                     value_tolerance=cfg["value_tolerance"],
                     installment_tolerance=cfg["installment_tolerance"],
                     store_patterns=cfg["store_patterns"],
+                    raw_df=invoice.raw_df,
                     classify_fn=credit_card.classify_invoice if classify else no_reclass,
                 )
 
@@ -157,7 +158,7 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                 st.dataframe(
                     installments.display_crosstable(installments.pipeline_from_df(invoice.raw_df)),
                     use_container_width=True,
-                    height=600 if invoice.bank == 'xp' else None
+                    height=600 if invoice.bank == 'xp' else 'content'
                 )
     except Exception as e:
         logging.info(f"Cartão de Crédito: {e}")

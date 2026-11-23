@@ -134,3 +134,85 @@ def test_style_enriched_hides_internal_columns_and_applies_colors():
     assert "#2E7D32" in html
     assert "#C62828" in html
     assert "#1565C0" in html
+
+
+def test_raw_df_installments_implicit_divisor_refund_and_combo():
+    orders_df = pd.DataFrame([
+        {
+            "data": datetime.date(2026, 11, 9),
+            "origem": "Amazon",
+            "pedido_id": "701-4252700-0123455",
+            "descricao": "G-Tech BSP11, Aparelho de Pressão",
+            "valor": 84.98,
+        },
+        {
+            "data": datetime.date(2026, 10, 15),
+            "origem": "Amazon",
+            "pedido_id": "701-5000372-3110633",
+            "descricao": "Grand Theft Auto VI - PlayStation 5",
+            "valor": 449.90,
+        },
+        {
+            "data": datetime.date(2026, 10, 29),
+            "origem": "Amazon",
+            "pedido_id": "701-0786509-5249835",
+            "descricao": "Petisco Dreamies",
+            "valor": 19.85,
+        },
+        {
+            "data": datetime.date(2026, 10, 18),
+            "origem": "Amazon",
+            "pedido_id": "702-0395393-7509050",
+            "descricao": "Head & Shoulders",
+            "valor": 17.64,
+        },
+        {
+            "data": datetime.date(2026, 10, 18),
+            "origem": "Amazon",
+            "pedido_id": "701-3112898-5369846",
+            "descricao": "Nescafe Dolce Gusto",
+            "valor": 17.90,
+        },
+    ])
+
+    invoice_df = pd.DataFrame([
+        {"categoria": None, "_source": None, "Data": "2026-11-09", "Estabelecimento": "Amazon", "Valor": 42.49},
+        {"categoria": None, "_source": None, "Data": "2026-11-15", "Estabelecimento": "Amazon", "Valor": 149.97},
+        {"categoria": None, "_source": None, "Data": "2026-11-01", "Estabelecimento": "Amazon Credito - NuPay", "Valor": -19.85},
+        {"categoria": None, "_source": None, "Data": "2026-10-20", "Estabelecimento": "Amazon Credito - NuPay", "Valor": 35.54},
+    ])
+
+    raw_df = pd.DataFrame([
+        {"title": "Amazon - Parcela 1/2", "Parcela": ""},
+        {"title": "Amazon", "Parcela": "2 de 3"},
+        {"title": "Amazon Credito - NuPay", "Parcela": ""},
+        {"title": "Amazon Credito - NuPay", "Parcela": ""},
+    ])
+
+    enriched, _ = enrich_amazon_transactions(
+        invoice_df,
+        orders_df,
+        raw_df=raw_df,
+        classify_fn=_fake_classifier,
+    )
+
+    assert enriched.loc[0, "match_status"] == "matched"
+    assert "G-Tech BSP11" in enriched.loc[0, "Estabelecimento"]
+
+    assert enriched.loc[1, "match_status"] == "matched"
+    assert "Grand Theft Auto VI" in enriched.loc[1, "Estabelecimento"]
+
+    assert enriched.loc[2, "match_status"] == "matched"
+    assert "[Estorno] Petisco Dreamies" in enriched.loc[2, "Estabelecimento"]
+
+    assert enriched.loc[3, "match_status"] == "matched"
+    assert "Head & Shoulders + Nescafe Dolce Gusto" in enriched.loc[3, "Estabelecimento"]
+
+    # Mesmo sem raw_df, o divisor implícito 84.98 / 2 casa 42.49
+    enriched_no_raw, _ = enrich_amazon_transactions(
+        invoice_df.iloc[[0]],
+        orders_df,
+        classify_fn=_fake_classifier,
+    )
+    assert enriched_no_raw.loc[0, "match_status"] == "matched"
+    assert "G-Tech BSP11" in enriched_no_raw.loc[0, "Estabelecimento"]
