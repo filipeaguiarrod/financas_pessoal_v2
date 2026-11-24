@@ -358,12 +358,16 @@ with tab_ecommerce:
 
         if db_conn_ok:
             try:
-                ec_orders = psql.get_ecommerce_orders(days=120, origem="Amazon")
-                st.info(f"📦 **{len(ec_orders)} pedido(s) Amazon** em `ecommerce_orders` (últimos 120 dias).")
-                if not ec_orders.empty:
+                ec_orders = psql.get_ecommerce_orders(days=120)
+                if ec_orders.empty:
+                    st.info("📦 **0 pedidos** em `ecommerce_orders` (últimos 120 dias).")
+                else:
+                    by_origin = ec_orders["origem"].value_counts().to_dict()
+                    origin_summary = " • ".join(f"{orig}: **{cnt}**" for orig, cnt in by_origin.items())
+                    st.info(f"📦 **{len(ec_orders)} pedido(s)** em `ecommerce_orders` (120d) — {origin_summary}")
                     with st.expander("Visualizar pedidos sincronizados", expanded=False):
                         st.dataframe(
-                            ec_orders[["data", "pedido_id", "descricao", "valor"]],
+                            ec_orders[["data", "origem", "pedido_id", "descricao", "valor"]],
                             use_container_width=True,
                             hide_index=True,
                         )

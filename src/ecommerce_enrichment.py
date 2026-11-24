@@ -13,16 +13,71 @@ from dateutil.relativedelta import relativedelta
 from . import credit_card
 
 AMAZON_PATTERN = re.compile(r"\b(?:amazon|amzn)\b", re.IGNORECASE)
+SHOPEE_PATTERN = re.compile(r"\b(?:shopee|shpp)\b", re.IGNORECASE)
+MELI_PATTERN = re.compile(r"\b(?:mercado\s*livre|mercadolivre|meli)\b", re.IGNORECASE)
 INSTALLMENT_PATTERN = re.compile(
     r"(?:parcela\s+)?(\d{1,2})\s*(?:/|de)\s*(\d{1,2})", re.IGNORECASE
 )
+
+ORIGIN_PREFIXES = {
+    "amazon": "AMZ",
+    "shopee": "Shopee",
+    "mercadolivre": "MELI",
+    "mercado livre": "MELI",
+    "meli": "MELI",
+}
+
+
+def format_enriched_establishment(origem: str | None, descricao: str) -> str:
+    """Formata o estabelecimento enriquecido de forma curta: 'AMZ - ...', 'Shopee - ...', 'MELI - ...'."""
+    norm = str(origem or "").strip().lower()
+    prefix = ORIGIN_PREFIXES.get(norm)
+    if not prefix:
+        if "amazon" in norm or "amzn" in norm:
+            prefix = "AMZ"
+        elif "shopee" in norm or "shpp" in norm:
+            prefix = "Shopee"
+        elif "mercado" in norm or "meli" in norm:
+            prefix = "MELI"
+        else:
+            prefix = str(origem or "").strip() or "Ecommerce"
+    return f"{prefix} - {str(descricao).strip()}"
+
+
+def detect_ecommerce_origin(estabelecimento: str) -> str | None:
+    """Identifica a origem de e-commerce ('amazon', 'shopee', 'mercadolivre') pelo descritivo da fatura."""
+    if not estabelecimento:
+        return None
+    text = str(estabelecimento).replace(".", " ").replace("*", " ")
+    if AMAZON_PATTERN.search(text):
+        return "amazon"
+    if SHOPEE_PATTERN.search(text):
+        return "shopee"
+    if MELI_PATTERN.search(text):
+        return "mercadolivre"
+    return None
+
+
+def _filter_orders_by_origin(orders_df: pd.DataFrame, origin: str | None) -> pd.DataFrame:
+    if orders_df is None or orders_df.empty:
+        return pd.DataFrame(columns=["data", "origem", "pedido_id", "descricao", "valor"])
+    if not origin:
+        return orders_df.copy()
+    orig_col = orders_df["origem"].astype(str).str.lower()
+    if origin == "amazon":
+        return orders_df[orig_col.str.contains("amazon|amzn", na=False)].copy()
+    if origin == "shopee":
+        return orders_df[orig_col.str.contains("shopee|shpp", na=False)].copy()
+    if origin == "mercadolivre":
+        return orders_df[orig_col.str.contains("mercado|meli", na=False)].copy()
+    return orders_df[orig_col.str.contains(re.escape(origin), na=False)].copy()
 
 
 def is_amazon_transaction(estabelecimento: str, store_patterns: str | None = None) -> bool:
     """Retorna True se o lançamento da fatura indicar compra na Amazon (ou padrões configurados)."""
     if not estabelecimento:
         return False
-    text = str(estabelecimento).replace(".", " ")
+    text = str(estabelecimento).replace(".", " ").replace("*", " ")
     if store_patterns:
         tokens = [re.escape(p.strip()) for p in str(store_patterns).split(",") if p.strip()]
         if tokens:
@@ -133,6 +188,7 @@ def _search_in_window(
         seen_keys.add(key)
 
         candidates.append({
+            "origem": str(order.get("origem", "")).strip(),
             "pedido_id": pedido_id,
             "descricao": descricao,
             "valor": ord_val,
@@ -162,6 +218,7 @@ def _find_combo_candidates(
         delta_days = (target_date - ord_date).days
         if -days_before <= delta_days <= days_after:
             window_orders.append({
+                "origem": str(order.get("origem", "")).strip(),
                 "pedido_id": str(order.get("pedido_id", "")).strip(),
                 "descricao": str(order.get("descricao", "")).strip(),
                 "valor": round(float(order.get("valor", 0.0)), 2),
@@ -178,6 +235,7 @@ def _find_combo_candidates(
             diff = abs(total - target_val)
             if diff <= tol:
                 combos.append({
+                    "origem": comb[0].get("origem", ""),
                     "pedido_id": ", ".join(dict.fromkeys(i["pedido_id"] for i in comb if i["pedido_id"])),
                     "descricao": " + ".join(i["descricao"] for i in comb),
                     "valor": total,
@@ -279,11 +337,9 @@ def enrich_amazon_transactions(
     df["descricao_produto"] = ""
 
     if orders_df is None or orders_df.empty:
-        amazon_orders = pd.DataFrame(columns=["data", "origem", "pedido_id", "descricao", "valor"])
+        all_orders = pd.DataFrame(columns=["data", "origem", "pedido_id", "descricao", "valor"])
     else:
-        amazon_orders = orders_df[
-            orders_df["origem"].astype(str).str.lower().str.contains("amazon", na=False)
-        ].copy()
+        all_orders = orders_df.copy()
 
     ambiguous_map: dict[int, list[dict]] = {}
     matched_indices: list[int] = []
@@ -291,9 +347,12 @@ def enrich_amazon_transactions(
 
     for idx, row in df.iterrows():
         estab = str(row.get("Estabelecimento", ""))
-        if not is_amazon_transaction(estab, store_patterns=store_patterns):
+        detected_origin = detect_ecommerce_origin(estab)
+        matches_custom = bool(store_patterns) and is_amazon_transaction(estab, store_patterns=store_patterns)
+        if not detected_origin and not matches_custom:
             continue
 
+        origin_orders = _filter_orders_by_origin(all_orders, detected_origin)
         inv_date = _to_date(row.get("Data"))
         inv_val = round(float(row.get("Valor", 0.0)), 2)
         inst_info = _get_raw_installment_info(raw_df, idx, estab)
@@ -301,7 +360,7 @@ def enrich_amazon_transactions(
             inv_date=inv_date,
             inv_value=inv_val,
             estabelecimento=estab,
-            amazon_orders=amazon_orders,
+            amazon_orders=origin_orders,
             days_before=days_before,
             days_after=days_after,
             value_tolerance=value_tolerance,
@@ -313,10 +372,11 @@ def enrich_amazon_transactions(
             df.at[idx, "match_status"] = "sem_match"
         elif len(candidates) == 1:
             best = candidates[0]
+            best_origin = best.get("origem") or detected_origin or "Amazon"
             df.at[idx, "match_status"] = "matched"
             df.at[idx, "pedido_id"] = best["pedido_id"]
             df.at[idx, "descricao_produto"] = best["descricao"]
-            df.at[idx, "Estabelecimento"] = f"{estab} — {best['descricao']}"
+            df.at[idx, "Estabelecimento"] = format_enriched_establishment(best_origin, best["descricao"])
             matched_indices.append(idx)
             matched_descriptions.append({
                 "Data": row.get("Data"),

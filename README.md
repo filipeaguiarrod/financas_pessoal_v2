@@ -19,7 +19,7 @@ Interface Streamlit para padronizar e processar arquivos CSV e XLSX de diferente
     - **Nubank:** busca em tempo real o anexo `.csv` do e-mail mais recente de fatura no Gmail (`GET /invoices/nubank/latest`).
 - **Classificação e Enriquecimento:**
   - Classifica automaticamente as transações via regras do usuário → histórico no banco → modelo de ML ([financial_category_model](https://github.com/filipeaguiarrod/financial_category_model)).
-  - Enriquecimento opcional de lançamentos de e-commerce (Amazon) a partir da tabela `ecommerce_orders`.
+  - Enriquecimento opcional multi-origem de lançamentos de e-commerce (**Amazon**, **Shopee** e **Mercado Livre**) a partir da tabela `ecommerce_orders`, padronizando os nomes de forma enxuta (`AMZ - <Descrição>`, `Shopee - <Descrição>`, `MELI - <Descrição>`).
 - **Conciliação Integrada com Google Sheets:**
   - Identifica automaticamente o banco (`xp` → `G4:J98` ou `nubank` → `G99:J200`) e a aba do mês atual.
   - Lê os lançamentos atuais da planilha via backend (`GET /sheets/card-block`), reconcilia mantendo a fatura oficial como verdade absoluta e exibe a comparação **Fatura Anterior (Sheets)** vs **Fatura Conciliada (Atual)** com confirmação de batimento.

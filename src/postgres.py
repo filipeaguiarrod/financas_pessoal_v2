@@ -216,7 +216,7 @@ class PostgresUploader:
             days_after            INTEGER NOT NULL DEFAULT 7,
             value_tolerance       NUMERIC(8, 2) NOT NULL DEFAULT 0.05,
             installment_tolerance NUMERIC(8, 2) NOT NULL DEFAULT 0.20,
-            store_patterns        TEXT NOT NULL DEFAULT 'AMAZON,AMZN',
+            store_patterns        TEXT NOT NULL DEFAULT 'AMAZON,AMZN,SHOPEE,SHPP,MELI,MERCADOLIVRE',
             updated_at            TIMESTAMP DEFAULT NOW()
          )
       '''))
@@ -228,7 +228,7 @@ class PostgresUploader:
          'days_after': 7,
          'value_tolerance': 0.05,
          'installment_tolerance': 0.20,
-         'store_patterns': 'AMAZON,AMZN',
+         'store_patterns': 'AMAZON,AMZN,SHOPEE,SHPP,MELI,MERCADOLIVRE',
       }
       try:
          self.ensure_ecommerce_matching_config_table()
@@ -276,6 +276,6 @@ class PostgresUploader:
          'da': int(days_after),
          'vt': round(float(value_tolerance), 2),
          'it': round(float(installment_tolerance), 2),
-         'sp': str(store_patterns).strip() or 'AMAZON,AMZN',
+         'sp': str(store_patterns).strip() or 'AMAZON,AMZN,SHOPEE,SHPP,MELI,MERCADOLIVRE',
       })
       self.connection.commit()

@@ -143,7 +143,7 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
 
             if enrich_ecommerce:
                 psql = postgres.PostgresUploader()
-                orders_df = psql.get_ecommerce_orders(days=120, origem="Amazon")
+                orders_df = psql.get_ecommerce_orders(days=120)
                 cfg = psql.get_ecommerce_matching_config()
                 no_reclass = (lambda d: pd.DataFrame({"categoria": [None] * len(d), "_source": [None] * len(d)}))
                 enriched_df, ambiguous_map = ecommerce_enrichment.enrich_amazon_transactions(
@@ -175,7 +175,10 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                         )
                         if choice != "-- Manter original --":
                             chosen = candidates[options.index(choice) - 1]
-                            enriched_df.at[row_idx, "Estabelecimento"] = f"{orig_estab} — {chosen['descricao']}"
+                            chosen_origin = chosen.get("origem") or ecommerce_enrichment.detect_ecommerce_origin(orig_estab) or "Amazon"
+                            enriched_df.at[row_idx, "Estabelecimento"] = ecommerce_enrichment.format_enriched_establishment(
+                                chosen_origin, chosen["descricao"]
+                            )
                             enriched_df.at[row_idx, "match_status"] = "matched_manual"
                             if classify:
                                 reclass = credit_card.classify_invoice(pd.DataFrame([{

@@ -2,8 +2,10 @@ import datetime
 import pandas as pd
 
 from src.ecommerce_enrichment import (
+    detect_ecommerce_origin,
     enrich_amazon_transactions,
     extract_installment_total,
+    format_enriched_establishment,
     is_amazon_transaction,
     style_enriched,
 )
@@ -215,4 +217,53 @@ def test_raw_df_installments_implicit_divisor_refund_and_combo():
         classify_fn=_fake_classifier,
     )
     assert enriched_no_raw.loc[0, "match_status"] == "matched"
-    assert "G-Tech BSP11" in enriched_no_raw.loc[0, "Estabelecimento"]
+    assert enriched_no_raw.loc[0, "Estabelecimento"] == "AMZ - G-Tech BSP11, Aparelho de Pressão"
+
+
+def test_multi_origin_enrichment_and_short_prefixes():
+    assert format_enriched_establishment("Amazon", "Cabo USB-C") == "AMZ - Cabo USB-C"
+    assert format_enriched_establishment("Shopee", "Modulo LM317") == "Shopee - Modulo LM317"
+    assert format_enriched_establishment("Mercado Livre", "Furadeira") == "MELI - Furadeira"
+    assert detect_ecommerce_origin("SHOPEE *MINYMIX") == "shopee"
+    assert detect_ecommerce_origin("MERCADOLIVRE *LOJA") == "mercadolivre"
+
+    orders_df = pd.DataFrame([
+        {
+            "data": datetime.date(2026, 11, 23),
+            "origem": "Amazon",
+            "pedido_id": "701-0000001-0000001",
+            "descricao": "Cabo USB-C Anker",
+            "valor": 17.00,
+        },
+        {
+            "data": datetime.date(2026, 11, 23),
+            "origem": "Shopee",
+            "pedido_id": "2611244GM2RF18",
+            "descricao": "Modulo Regulador LM317",
+            "valor": 17.00,
+        },
+        {
+            "data": datetime.date(2026, 11, 23),
+            "origem": "Mercado Livre",
+            "pedido_id": "ML-123456",
+            "descricao": "Broca 10mm",
+            "valor": 29.90,
+        },
+    ])
+
+    invoice_df = pd.DataFrame([
+        {"categoria": None, "_source": None, "Data": "2026-11-24", "Estabelecimento": "Amazon Credito AMZ - NuPay", "Valor": 17.00},
+        {"categoria": None, "_source": None, "Data": "2026-11-24", "Estabelecimento": "SHOPEE *MINYMIX", "Valor": 17.00},
+        {"categoria": None, "_source": None, "Data": "2026-11-24", "Estabelecimento": "MERCADOLIVRE *LOJA", "Valor": 29.90},
+    ])
+
+    enriched, ambig = enrich_amazon_transactions(
+        invoice_df,
+        orders_df,
+        classify_fn=_fake_classifier,
+    )
+
+    assert not ambig
+    assert enriched.loc[0, "Estabelecimento"] == "AMZ - Cabo USB-C Anker"
+    assert enriched.loc[1, "Estabelecimento"] == "Shopee - Modulo Regulador LM317"
+    assert enriched.loc[2, "Estabelecimento"] == "MELI - Broca 10mm"
