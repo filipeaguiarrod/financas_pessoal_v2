@@ -29,9 +29,6 @@ Interface Streamlit para padronizar e processar arquivos CSV e XLSX de diferente
 Analisa as parcelas das faturas dos cartões, facilitando o acompanhamento de despesas parceladas.
 Pode usar modelos de LLM para criar um report de extensão e valor das contas parceladas.
 
-### Aba Reconciliação Manual (`pages/reconcile.py`)
-Permite conciliar faturas colando dados do Google Sheets manualmente e exportando via CSV ou TSV.
-
 ### Aba E-commerce
 Processa dados de compras em lojinhas online através de HTML tabulado, ajudando na organização e categorização de gastos com e-commerce.
 - Shopee
