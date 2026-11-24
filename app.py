@@ -281,17 +281,32 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                 val_removido = rec_stats.get("valor_removido", 0.0)
                 df_descartados = rec_stats.get("df_descartados", pd.DataFrame())
 
+                val_antigo = rec_stats.get("valor_antigo", 0.0)
+                val_novo = rec_stats.get("valor_novo", 0.0)
+                val_fatura = rec_stats.get("valor_fatura", 0.0)
+                bate_fatura = rec_stats.get("bate_com_fatura", abs(val_novo - val_fatura) < 0.01)
+
                 st.caption(
                     f"Destino: aba **{rec_meta['mes']}** | bloco **{rec_meta['range']}** "
                     f"(capacidade máxima: {rec_meta.get('max_rows', '-')} linhas)"
                 )
 
-                m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("💳 Fatura Oficial", _format_brl(rec_stats.get("valor_fatura", 0.0)), f"{rec_stats.get('total', 0)} itens")
-                m2.metric("📋 Base Sheets", _format_brl(rec_stats.get("valor_antigo", 0.0)), f"{rec_state.get('sheets_count', 0)} itens")
-                m3.metric("🏷️ Mantidas", str(rec_stats.get("mantidos", 0)))
-                m4.metric("🆕 Novos", str(rec_stats.get("novos", 0)))
-                m5.metric("🗑️ Descartados", str(removidos_count), f"-{_format_brl(val_removido)}" if removidos_count > 0 else "0", delta_color="inverse" if removidos_count > 0 else "off")
+                m1, m2 = st.columns(2)
+                m1.metric("Fatura Anterior (Sheets)", _format_brl(val_antigo))
+                diff_ant = round(val_novo - val_antigo, 2)
+                m2.metric(
+                    "Fatura Conciliada (Atual)",
+                    _format_brl(val_novo),
+                    delta=f"{'+' if diff_ant >= 0 else ''}{_format_brl(diff_ant)}" if abs(diff_ant) >= 0.01 else "Sem diferença",
+                )
+
+                if bate_fatura:
+                    st.success(f"✅ Bate 100% com o valor da fatura carregada ({_format_brl(val_fatura)}).")
+                else:
+                    st.error(
+                        f"⚠️ Diferença em relação à fatura carregada ({_format_brl(val_fatura)}): "
+                        f"{_format_brl(val_novo - val_fatura)}."
+                    )
 
                 tab_rec_final, tab_rec_disc = st.tabs([
                     f"📋 Consolidado Final ({len(df_rec)})",
