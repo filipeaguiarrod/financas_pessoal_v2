@@ -18,8 +18,9 @@ Interface Streamlit para padronizar e processar arquivos CSV e XLSX de diferente
     - **XP Investimentos:** busca o `.csv` mais recente da pasta configurada no Google Drive (`GET /invoices/xp/latest`).
     - **Nubank:** busca em tempo real o anexo `.csv` do e-mail mais recente de fatura no Gmail (`GET /invoices/nubank/latest`).
 - **Classificação e Enriquecimento:**
-  - Classifica automaticamente as transações via regras do usuário → histórico no banco → modelo de ML ([financial_category_model](https://github.com/filipeaguiarrod/financial_category_model)).
+  - Classifica automaticamente as transações na ordem: **Regras do usuário** (`rules_classifier`) → **Histórico no PostgreSQL** (`primary_classifier`) → **Modelo de Machine Learning** (`secondary_classifier`, via [financial_category_model](https://github.com/filipeaguiarrod/financial_category_model)).
   - Enriquecimento opcional multi-origem de lançamentos de e-commerce (**Amazon**, **Shopee** e **Mercado Livre**) a partir da tabela `ecommerce_orders`, padronizando os nomes de forma enxuta (`AMZ - <Descrição>`, `Shopee - <Descrição>`, `MELI - <Descrição>`).
+  - **Reclassificação pela descrição rica do produto:** quando ambos os toggles (*Classificar transações ?* e *Enriquecer ecommerce ?*) estão ativos — tanto no match automático quanto na resolução manual de casos ambíguos — a **descrição real do produto** (sem o prefixo/ruído da operadora) é enviada novamente para toda a cadeia de classificação (incluindo o modelo de Machine Learning), substituindo a categoria genérica pela categoria inferida do produto.
 - **Conciliação Integrada com Google Sheets:**
   - Identifica automaticamente o banco (`xp` → `G4:J98` ou `nubank` → `G99:J200`) e a aba do mês atual.
   - Lê os lançamentos atuais da planilha via backend (`GET /sheets/card-block`), reconcilia mantendo a fatura oficial como verdade absoluta e exibe a comparação **Fatura Anterior (Sheets)** vs **Fatura Conciliada (Atual)** com confirmação de batimento.
