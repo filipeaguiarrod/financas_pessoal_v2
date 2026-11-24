@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from src import credit_card, invoice_client
+from src import credit_card, invoice_client, reconciler
 
 
 def _mock_response(status_code: int = 200, json_data=None, text: str = ""):
@@ -93,3 +93,73 @@ def test_fetch_latest_invoice_propagates_backend_detail():
     with patch("src.invoice_client.requests.get", return_value=resp):
         with pytest.raises(invoice_client.InvoiceClientError, match="XP_DRIVE_FOLDER_ID"):
             invoice_client.fetch_latest_invoice("xp", api_url="http://backend.local:7555")
+
+
+def test_fetch_sheets_card_block_integrates_with_reconciler():
+    resp = _mock_response(
+        200,
+        json_data={
+            "bank": "xp",
+            "mes": "novembro",
+            "range": "G4:J98",
+            "max_rows": 95,
+            "rows": [
+                ["Restaurante", "10/11/2026", "PADARIA CENTRAL", "32,50"],
+            ],
+        },
+    )
+    with patch("src.invoice_client.requests.get", return_value=resp) as mock_get:
+        df_sheets, meta = invoice_client.fetch_sheets_card_block(
+            "xp", "novembro", api_url="http://backend.local:7555"
+        )
+
+    mock_get.assert_called_once_with(
+        "http://backend.local:7555/sheets/card-block",
+        params={"bank": "xp", "mes": "novembro"},
+        timeout=30,
+    )
+    assert meta["range"] == "G4:J98"
+    assert len(df_sheets) == 1
+
+    import pandas as pd
+    df_fatura = pd.DataFrame([
+        {"categoria": "Outros", "Data": "10/11/2026", "Estabelecimento": "PADARIA CENTRAL", "Valor": 32.50},
+        {"categoria": "Mercado", "Data": "12/11/2026", "Estabelecimento": "SUPERMERCADO", "Valor": 110.00},
+    ])
+    df_rec, stats = reconciler.reconcile_transactions(df_sheets, df_fatura)
+    assert stats["mantidos"] == 1
+    assert stats["novos"] == 1
+    assert df_rec.loc[df_rec["Estabelecimento"] == "PADARIA CENTRAL", "categoria"].iloc[0] == "Restaurante"
+
+
+def test_write_sheets_card_block_formats_br_currency_and_posts():
+    import pandas as pd
+
+    df_rec = pd.DataFrame([
+        {"categoria": "Restaurante", "Data": "10/11/2026", "Estabelecimento": "PADARIA", "Valor": 32.5},
+    ])
+    resp = _mock_response(
+        200,
+        json_data={
+            "status": "success",
+            "bank": "nubank",
+            "mes": "novembro",
+            "range": "G99:J200",
+            "written_rows": 1,
+        },
+    )
+    with patch("src.invoice_client.requests.post", return_value=resp) as mock_post:
+        res = invoice_client.write_sheets_card_block(
+            "nubank", "novembro", df_rec, api_url="http://backend.local:7555"
+        )
+
+    assert res["written_rows"] == 1
+    mock_post.assert_called_once_with(
+        "http://backend.local:7555/sheets/card-block",
+        json={
+            "bank": "nubank",
+            "mes": "novembro",
+            "rows": [["Restaurante", "10/11/2026", "PADARIA", "32,50"]],
+        },
+        timeout=30,
+    )

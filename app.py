@@ -2,7 +2,7 @@ import datetime
 import logging
 import streamlit as st
 import pandas as pd
-from src import credit_card, checking_account, installments, ecommerce_enrichment, invoice_client, postgres
+from src import credit_card, checking_account, installments, ecommerce_enrichment, invoice_client, postgres, reconciler
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -67,6 +67,16 @@ def _format_remote_date(iso_str: str | None) -> str:
         return iso_str
 
 
+def _format_brl(val: float) -> str:
+    return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+MONTHS_PT = [
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+]
+
+
 # --- Drill Down: Cartão de Crédito ---
 with st.expander("💳 Cartão de Crédito", expanded=False):
     try:
@@ -129,6 +139,7 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                     show_installments = st.toggle("Analisar parcelas", key='cc_installments')
 
             base_df = credit_card.classify_invoice(invoice.df) if classify else invoice.df.copy()
+            active_invoice_df = base_df.copy()
 
             if enrich_ecommerce:
                 psql = postgres.PostgresUploader()
@@ -193,6 +204,7 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                 )
                 disp_df = credit_card.format_display_df(enriched_df[cols_show])
                 st.dataframe(ecommerce_enrichment.style_enriched(disp_df), use_container_width=True)
+                active_invoice_df = enriched_df.copy()
             elif classify:
                 classification_legend()
                 disp_df = credit_card.format_display_df(base_df)
@@ -207,6 +219,160 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
                     use_container_width=True,
                     height=600 if invoice.bank == 'xp' else 'content'
                 )
+
+            # --- Conciliação Integrada com Google Sheets ---
+            st.divider()
+            st.subheader("🔄 Conciliar com Google Sheets")
+
+            invoice_sig = f"{invoice.bank}:{len(invoice.df)}:{invoice.total_amount}"
+            if st.session_state.get("cc_reconcile_sig") != invoice_sig:
+                st.session_state.pop("cc_reconcile_state", None)
+                st.session_state["cc_reconcile_sig"] = invoice_sig
+
+            default_range = invoice_client.DEFAULT_SHEET_RANGES.get(invoice.bank, "G4:J98")
+            current_month_idx = datetime.datetime.now().month - 1
+
+            col_rec_m, col_rec_btn = st.columns([1.2, 1.8], vertical_alignment="bottom")
+            with col_rec_m:
+                rec_month = st.selectbox(
+                    "Aba do mês no Google Sheets",
+                    options=MONTHS_PT,
+                    index=current_month_idx,
+                    key="cc_reconcile_month",
+                    help=f"Cartão detectado automaticamente: {invoice.bank_name} ({default_range})",
+                )
+            with col_rec_btn:
+                if st.button(
+                    f"🔄 Ler Sheets ({default_range}) e Conciliar",
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_cc_reconcile_sheets",
+                ):
+                    try:
+                        with st.spinner(f"Lendo aba '{rec_month}' ({default_range}) no Google Sheets e conciliando..."):
+                            df_sheets_cur, sheets_meta = invoice_client.fetch_sheets_card_block(
+                                invoice.bank, rec_month
+                            )
+                            # Garante classificação para lançamentos novos da fatura
+                            if "categoria" in active_invoice_df.columns and classify:
+                                df_fatura_cls = active_invoice_df.copy()
+                            else:
+                                df_fatura_cls = credit_card.classify_invoice(
+                                    active_invoice_df[["Data", "Estabelecimento", "Valor"]]
+                                )
+                            df_rec, rec_stats = reconciler.reconcile_transactions(
+                                df_sheets_cur, df_fatura_cls
+                            )
+                            st.session_state["cc_reconcile_state"] = {
+                                "df": df_rec,
+                                "stats": rec_stats,
+                                "meta": sheets_meta,
+                                "sheets_count": len(df_sheets_cur),
+                            }
+                    except invoice_client.InvoiceClientError as rec_err:
+                        st.error(str(rec_err))
+
+            rec_state = st.session_state.get("cc_reconcile_state")
+            if rec_state is not None:
+                df_rec = rec_state["df"]
+                rec_stats = rec_state["stats"]
+                rec_meta = rec_state["meta"]
+                removidos_count = rec_stats.get("removidos", 0)
+                val_removido = rec_stats.get("valor_removido", 0.0)
+                df_descartados = rec_stats.get("df_descartados", pd.DataFrame())
+
+                val_antigo = rec_stats.get("valor_antigo", 0.0)
+                val_novo = rec_stats.get("valor_novo", 0.0)
+                val_fatura = rec_stats.get("valor_fatura", 0.0)
+                bate_fatura = rec_stats.get("bate_com_fatura", abs(val_novo - val_fatura) < 0.01)
+
+                st.caption(
+                    f"Destino: aba **{rec_meta['mes']}** | bloco **{rec_meta['range']}** "
+                    f"(capacidade máxima: {rec_meta.get('max_rows', '-')} linhas)"
+                )
+
+                m1, m2 = st.columns(2)
+                m1.metric("Fatura Anterior (Sheets)", _format_brl(val_antigo))
+                diff_ant = round(val_novo - val_antigo, 2)
+                m2.metric(
+                    "Fatura Conciliada (Atual)",
+                    _format_brl(val_novo),
+                    delta=f"{'+' if diff_ant >= 0 else ''}{_format_brl(diff_ant)}" if abs(diff_ant) >= 0.01 else "Sem diferença",
+                )
+
+                if bate_fatura:
+                    st.success(f"✅ Bate 100% com o valor da fatura carregada ({_format_brl(val_fatura)}).")
+                else:
+                    st.error(
+                        f"⚠️ Diferença em relação à fatura carregada ({_format_brl(val_fatura)}): "
+                        f"{_format_brl(val_novo - val_fatura)}."
+                    )
+
+                tab_rec_final, tab_rec_disc = st.tabs([
+                    f"📋 Consolidado Final ({len(df_rec)})",
+                    f"🗑️ Não Efetivadas ({removidos_count})",
+                ])
+
+                with tab_rec_final:
+                    st.caption("Você pode ajustar qualquer **categoria** diretamente na tabela antes de enviar ao Google Sheets.")
+                    edited_rec_df = st.data_editor(
+                        df_rec[["categoria", "Data", "Estabelecimento", "Valor", "_status"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        disabled=["Data", "Estabelecimento", "Valor", "_status"],
+                        column_config={
+                            "categoria": st.column_config.TextColumn("Categoria"),
+                            "Data": st.column_config.TextColumn("Data"),
+                            "Estabelecimento": st.column_config.TextColumn("Estabelecimento"),
+                            "Valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
+                            "_status": st.column_config.TextColumn("Status"),
+                        },
+                        key=f"cc_rec_editor_{invoice.bank}_{rec_meta['mes']}",
+                    )
+
+                    confirm_write = st.checkbox(
+                        f"Confirmo gravar **{len(edited_rec_df)} lançamento(s)** diretamente na aba "
+                        f"**{rec_meta['mes']}** ({rec_meta['range']})",
+                        value=False,
+                        key=f"cc_rec_confirm_{invoice.bank}_{rec_meta['mes']}",
+                    )
+
+                    col_send, col_tsv = st.columns([2, 1])
+                    with col_send:
+                        if st.button(
+                            f"📤 Enviar direto para o Google Sheets ({rec_meta['range']})",
+                            type="primary",
+                            use_container_width=True,
+                            disabled=not confirm_write,
+                            key="btn_cc_write_sheets",
+                        ):
+                            try:
+                                with st.spinner(f"Gravando em {rec_meta['mes']} ({rec_meta['range']})..."):
+                                    write_res = invoice_client.write_sheets_card_block(
+                                        invoice.bank,
+                                        rec_meta["mes"],
+                                        edited_rec_df,
+                                    )
+                                st.success(
+                                    f"✅ **{write_res.get('written_rows', len(edited_rec_df))} lançamento(s)** "
+                                    f"gravados com sucesso na aba **{write_res.get('mes')}** ({write_res.get('range')})!"
+                                )
+                            except invoice_client.InvoiceClientError as write_err:
+                                st.error(str(write_err))
+                    with col_tsv:
+                        tsv_out = reconciler.to_sheets_tsv(edited_rec_df, include_header=False)
+                        with st.popover("📋 Copiar TSV", use_container_width=True):
+                            st.text_area("TSV para colar manualmente:", value=tsv_out, height=180)
+
+                with tab_rec_disc:
+                    if removidos_count > 0 and not df_descartados.empty:
+                        st.dataframe(
+                            df_descartados[["categoria", "Data", "Estabelecimento", "Valor", "_motivo"]],
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    else:
+                        st.success("Nenhuma transação descartada — tudo da planilha casou com a fatura oficial.")
     except Exception as e:
         logging.info(f"Cartão de Crédito: {e}")
         st.error(f"Erro ao processar fatura: {e}")
