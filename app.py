@@ -1,7 +1,8 @@
+import datetime
 import logging
 import streamlit as st
 import pandas as pd
-from src import credit_card, checking_account, installments, ecommerce_enrichment, postgres
+from src import credit_card, checking_account, installments, ecommerce_enrichment, invoice_client, postgres
 from src.sidebars import Navbar
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -56,6 +57,16 @@ def classification_legend(show_modelo=True):
     st.markdown('<small>' + '&nbsp;&nbsp;'.join(items) + '</small>', unsafe_allow_html=True)
 
 
+def _format_remote_date(iso_str: str | None) -> str:
+    if not iso_str:
+        return "data indisponível"
+    try:
+        dt = datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        return dt.astimezone().strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return iso_str
+
+
 # --- Drill Down: Cartão de Crédito ---
 with st.expander("💳 Cartão de Crédito", expanded=False):
     try:
@@ -64,8 +75,44 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
             type=['csv'],
             key='cc_invoice_uploader'
         )
+
+        col_btn_xp, col_btn_nu = st.columns(2)
+        with col_btn_xp:
+            if st.button("📥 Buscar última fatura XP (Drive)", use_container_width=True, key="btn_fetch_xp_invoice"):
+                try:
+                    with st.spinner("Buscando última fatura XP no Google Drive via backend..."):
+                        st.session_state["cc_remote_invoice"] = invoice_client.fetch_latest_invoice("xp")
+                except invoice_client.InvoiceClientError as fetch_err:
+                    st.error(str(fetch_err))
+        with col_btn_nu:
+            if st.button("📧 Buscar última fatura Nubank (Gmail)", use_container_width=True, key="btn_fetch_nubank_invoice"):
+                try:
+                    with st.spinner("Buscando última fatura Nubank no Gmail via backend..."):
+                        st.session_state["cc_remote_invoice"] = invoice_client.fetch_latest_invoice("nubank")
+                except invoice_client.InvoiceClientError as fetch_err:
+                    st.error(str(fetch_err))
+
+        remote_invoice = st.session_state.get("cc_remote_invoice")
+        cc_source = None
+
         if cc_file is not None:
-            invoice = credit_card.process_credit_card_invoice(cc_file)
+            cc_source = cc_file
+        elif remote_invoice is not None:
+            source_label = "Google Drive" if remote_invoice.source == "google_drive" else "Gmail"
+            col_info, col_clear = st.columns([5, 1])
+            with col_info:
+                st.caption(
+                    f"Origem automática ({source_label}): **{remote_invoice.filename}** "
+                    f"({_format_remote_date(remote_invoice.date)})"
+                )
+            with col_clear:
+                if st.button("✖️ Limpar", use_container_width=True, key="btn_clear_remote_invoice"):
+                    st.session_state.pop("cc_remote_invoice", None)
+                    st.rerun()
+            cc_source = remote_invoice.to_bytes_io()
+
+        if cc_source is not None:
+            invoice = credit_card.process_credit_card_invoice(cc_source)
             logging.info(f"Fatura processada: banco={invoice.bank}, shape={invoice.df.shape}")
 
             st.success(f"Fatura identificada: **{invoice.bank_name}**")
