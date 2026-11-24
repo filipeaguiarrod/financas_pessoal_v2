@@ -17,4 +17,5 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       CLASSIFICATION_MODEL_API: ${CLASSIFICATION_MODEL_API}
+      FINANCAS_API_URL: ${FINANCAS_API_URL:-http://localhost:7555}
     restart: unless-stopped
