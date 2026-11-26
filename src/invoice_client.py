@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ load_dotenv(dotenv_path=os.path.abspath(".env"))
 
 DEFAULT_FINANCAS_API_URL = "http://localhost:7555"
 SUPPORTED_BANKS = ("xp", "nubank")
+SUPPORTED_CHECKING_BANKS = ("itau", "bradesco")
 DEFAULT_SHEET_RANGES = {
     "xp": "G4:J98",
     "nubank": "G99:J200",
@@ -96,6 +98,66 @@ def fetch_latest_invoice(
         filename=str(data.get("filename") or f"{normalized_bank}.csv"),
         date=data.get("date"),
         csv_bytes=csv_content.encode("utf-8"),
+    )
+
+
+def fetch_latest_statement(
+    bank: str,
+    *,
+    api_url: str | None = None,
+    timeout: int = 30,
+) -> RemoteInvoice:
+    """Solicita ao financas_backend o extrato mais recente de conta corrente ('itau' PDF ou 'bradesco' CSV)."""
+    normalized_bank = bank.strip().lower()
+    if normalized_bank not in SUPPORTED_CHECKING_BANKS:
+        raise ValueError(
+            f"Banco de conta corrente '{bank}' não suportado. "
+            f"Use um de: {', '.join(SUPPORTED_CHECKING_BANKS)}."
+        )
+
+    base_url = (api_url or get_backend_api_url()).rstrip("/")
+    endpoint = f"{base_url}/statements/{normalized_bank}/latest"
+
+    try:
+        resp = requests.get(endpoint, timeout=timeout)
+    except requests.exceptions.RequestException as exc:
+        raise InvoiceClientError(
+            f"Não foi possível conectar ao financas_backend ({base_url}). "
+            "Verifique se o servidor está ativo e se FINANCAS_API_URL está configurado no .env."
+        ) from exc
+
+    if resp.status_code != 200:
+        raise InvoiceClientError(
+            _extract_error_detail(
+                resp,
+                f"Erro HTTP {resp.status_code} ao buscar extrato {normalized_bank.upper()}.",
+            )
+        )
+
+    data = resp.json()
+    if normalized_bank == "itau":
+        pdf_b64 = data.get("pdf_base64")
+        if not pdf_b64:
+            raise InvoiceClientError(
+                "O backend retornou uma resposta vazia para o extrato PDF do Itaú."
+            )
+        raw_bytes = base64.b64decode(pdf_b64)
+        default_filename = "itau_extrato.pdf"
+    else:
+        csv_content = data.get("csv_content")
+        if not csv_content:
+            raise InvoiceClientError(
+                "O backend retornou uma resposta vazia para o extrato CSV do Bradesco."
+            )
+        raw_bytes = csv_content.encode("utf-8")
+        default_filename = "bradesco_extrato.csv"
+
+    return RemoteInvoice(
+        bank=str(data.get("bank") or normalized_bank),
+        source=str(data.get("source") or "google_drive"),
+        filename=str(data.get("filename") or default_filename),
+        date=data.get("date"),
+        csv_bytes=raw_bytes,
     )
 
 

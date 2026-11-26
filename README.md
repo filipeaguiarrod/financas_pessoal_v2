@@ -2,11 +2,11 @@
 
 ## Ideia Geral do Repositório
 
-Interface Streamlit para padronizar e processar arquivos CSV e XLSX de diferentes instituições financeiras:
+Interface Streamlit para padronizar e processar extratos e faturas (CSV, XLS e PDF) de diferentes instituições financeiras:
 
 - XP Investimentos
-- Conta Itaú
-- Cartão Itaú
+- Conta Itaú (PDF exportado do app ou XLS)
+- Conta Bradesco (CSV)
 - Cartão Nubank
 
 ## Funcionalidades
@@ -25,6 +25,15 @@ Interface Streamlit para padronizar e processar arquivos CSV e XLSX de diferente
   - Identifica automaticamente o banco (`xp` → `G4:J98` ou `nubank` → `G99:J200`) e a aba do mês atual.
   - Lê os lançamentos atuais da planilha via backend (`GET /sheets/card-block`), reconcilia mantendo a fatura oficial como verdade absoluta e exibe a comparação **Fatura Anterior (Sheets)** vs **Fatura Conciliada (Atual)** com confirmação de batimento.
   - Permite editar categorias inline na tabela e enviar o bloco reconciliado diretamente para o Google Sheets (`POST /sheets/card-block`) com confirmação explícita.
+
+### Aba Conta Corrente (`app.py`)
+- **Importação automática via Google Drive (`financas_backend`) e upload manual:**
+  - Botão único **"📥 Buscar Itaú + Bradesco (Drive)"** (além de busca individual e upload manual de `.pdf`/`.xls` para Itaú e `.csv` para Bradesco):
+    - **Itaú (`GET /statements/itau/latest`):** baixa o extrato `.pdf` mais recente do Google Drive e extrai apenas os lançamentos efetivados com `pdfplumber` (ignorando cabeçalho de saldos/limites, `Lançamentos futuros`, linhas de saldo diário e `Posição consolidada`), montando a descrição no formato `<Tipo> - <Descrição>`.
+    - **Bradesco (`GET /statements/bradesco/latest`):** baixa o extrato `.csv` mais recente do Google Drive (diferenciando-o automaticamente dos CSVs da XP na mesma pasta) e interrompe a leitura antes de `Lançamentos periódicos`.
+- **Consolidação automática e Classificação:**
+  - Ao carregar Itaú e Bradesco, consolida ambos automaticamente removendo rendimentos automáticos, pagamentos de fatura (XP/Nubank) e transferências internas entre as duas contas.
+  - Classifica os lançamentos via Regras do Usuário + Histórico no PostgreSQL e disponibiliza botão **"📋 Copiar TSV (Sheets A4:E)"** pronto para colagem na planilha.
 
 ### Módulo de Análise de Parcelas
 Analisa as parcelas das faturas dos cartões, facilitando o acompanhamento de despesas parceladas.

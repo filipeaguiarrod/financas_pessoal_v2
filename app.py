@@ -383,62 +383,150 @@ with st.expander("💳 Cartão de Crédito", expanded=False):
 
 # --- Drill Down: Conta Corrente ---
 with st.expander("🏦 Conta Corrente", expanded=False):
-    itau_file = None
-    bradesco_file = None
+    col_cc_both, col_cc_itau, col_cc_brad = st.columns([2, 1, 1])
+    with col_cc_both:
+        if st.button(
+            "📥 Buscar Itaú + Bradesco (Drive)",
+            type="primary",
+            use_container_width=True,
+            key="btn_fetch_checking_both",
+        ):
+            with st.spinner("Buscando extratos Itaú (PDF) e Bradesco (CSV) no Google Drive..."):
+                try:
+                    st.session_state["checking_remote_itau"] = invoice_client.fetch_latest_statement("itau")
+                except invoice_client.InvoiceClientError as fetch_err:
+                    st.error(f"Itaú: {fetch_err}")
+                try:
+                    st.session_state["checking_remote_bradesco"] = invoice_client.fetch_latest_statement("bradesco")
+                except invoice_client.InvoiceClientError as fetch_err:
+                    st.error(f"Bradesco: {fetch_err}")
+    with col_cc_itau:
+        if st.button("📥 Só Itaú", use_container_width=True, key="btn_fetch_checking_itau"):
+            try:
+                with st.spinner("Buscando extrato Itaú (PDF) no Google Drive..."):
+                    st.session_state["checking_remote_itau"] = invoice_client.fetch_latest_statement("itau")
+            except invoice_client.InvoiceClientError as fetch_err:
+                st.error(str(fetch_err))
+    with col_cc_brad:
+        if st.button("📥 Só Bradesco", use_container_width=True, key="btn_fetch_checking_bradesco"):
+            try:
+                with st.spinner("Buscando extrato Bradesco (CSV) no Google Drive..."):
+                    st.session_state["checking_remote_bradesco"] = invoice_client.fetch_latest_statement("bradesco")
+            except invoice_client.InvoiceClientError as fetch_err:
+                st.error(str(fetch_err))
 
-    # --- Itau ---
-    try:
-        st.subheader('Itau')
-        itau_file = st.file_uploader("Jogue aqui o arquivo .xls Itau")
-        if itau_file is not None:
-            itau = checking_account.transform_itau(itau_file)
+    remote_itau = st.session_state.get("checking_remote_itau")
+    remote_bradesco = st.session_state.get("checking_remote_bradesco")
 
-            if st.toggle("*Classificar transações ?*", value=False, key='itau_classifier'):
-                itau = checking_account.classify_checking_account(itau)
-                itau['valor (R$)'] = itau['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
-                classification_legend(show_modelo=False)
-                st.dataframe(checking_account.style_classified(itau))
-            else:
-                st.dataframe(itau)
-    except Exception as e:
-        logging.info(f"Itau: {e}")
-        st.error(f"Erro ao processar extrato Itaú: {e}")
+    if remote_itau is not None or remote_bradesco is not None:
+        col_cc_info, col_cc_clear = st.columns([5, 1])
+        with col_cc_info:
+            parts_info = []
+            if remote_itau is not None:
+                parts_info.append(
+                    f"Itaú: **{remote_itau.filename}** ({_format_remote_date(remote_itau.date)})"
+                )
+            if remote_bradesco is not None:
+                parts_info.append(
+                    f"Bradesco: **{remote_bradesco.filename}** ({_format_remote_date(remote_bradesco.date)})"
+                )
+            st.caption("Origem automática (Google Drive) — " + " | ".join(parts_info))
+        with col_cc_clear:
+            if st.button("✖️ Limpar", use_container_width=True, key="btn_clear_remote_checking"):
+                st.session_state.pop("checking_remote_itau", None)
+                st.session_state.pop("checking_remote_bradesco", None)
+                st.rerun()
 
-    # --- Bradesco ---
-    try:
-        st.subheader('Bradesco')
-        bradesco_file = st.file_uploader("Jogue aqui o arquivo .csv Bradesco")
-        if bradesco_file is not None:
-            bradesco = checking_account.transform_bradesco(bradesco_file)
+    col_up_itau, col_up_brad = st.columns(2)
+    with col_up_itau:
+        itau_upload = st.file_uploader(
+            "Upload manual Itaú (.pdf ou .xls)",
+            type=["pdf", "xls", "xlsx"],
+            key="checking_itau_uploader",
+        )
+    with col_up_brad:
+        bradesco_upload = st.file_uploader(
+            "Upload manual Bradesco (.csv)",
+            type=["csv"],
+            key="checking_bradesco_uploader",
+        )
 
-            if st.toggle("*Classificar transações ?*", value=False, key='bradesco_classifier'):
-                bradesco = checking_account.classify_checking_account(bradesco)
-                bradesco['valor (R$)'] = bradesco['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
-                classification_legend(show_modelo=False)
-                st.dataframe(checking_account.style_classified(bradesco))
-            else:
-                st.dataframe(bradesco)
-    except Exception as e:
-        logging.info(f"Bradesco: {e}")
-        st.error(f"Erro ao processar extrato Bradesco: {e}")
+    itau_source = itau_upload if itau_upload is not None else (
+        remote_itau.to_bytes_io() if remote_itau is not None else None
+    )
+    bradesco_source = bradesco_upload if bradesco_upload is not None else (
+        remote_bradesco.to_bytes_io() if remote_bradesco is not None else None
+    )
 
-    # --- Consolidação (quando ambos forem carregados) ---
-    if itau_file is not None and bradesco_file is not None:
+    itau_raw = None
+    bradesco_raw = None
+
+    if itau_source is not None:
         try:
-            st.subheader('Extrato Consolidado')
-            itau_raw = checking_account.transform_itau(itau_file)
-            bradesco_raw = checking_account.transform_bradesco(bradesco_file)
+            itau_raw = checking_account.transform_itau(itau_source)
+        except Exception as e:
+            logging.info(f"Itau: {e}")
+            st.error(f"Erro ao processar extrato Itaú: {e}")
 
-            # Consolidar usando as regras de filtragem
+    if bradesco_source is not None:
+        try:
+            bradesco_raw = checking_account.transform_bradesco(bradesco_source)
+        except Exception as e:
+            logging.info(f"Bradesco: {e}")
+            st.error(f"Erro ao processar extrato Bradesco: {e}")
+
+    # --- Consolidação automática (quando ambos estiverem carregados) ---
+    if itau_raw is not None and bradesco_raw is not None:
+        try:
+            st.subheader("📊 Extrato Consolidado (Itaú + Bradesco)")
             merged = checking_account.consolidate_checking_accounts(itau_raw, bradesco_raw)
 
             if st.toggle("*Classificar transações consolidadas ?*", value=False, key='consolidated_classifier'):
                 merged_class = checking_account.classify_checking_account(merged)
                 merged_class['valor (R$)'] = merged_class['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
                 classification_legend(show_modelo=False)
-                st.dataframe(checking_account.style_classified(merged_class))
+                st.dataframe(checking_account.style_classified(merged_class), use_container_width=True)
+                tsv_df = merged_class.drop(columns=['_source'], errors='ignore')
             else:
-                st.dataframe(merged)
+                st.dataframe(merged, use_container_width=True)
+                tsv_df = merged
+
+            tsv_checking = tsv_df.to_csv(sep='\t', index=False, header=False, lineterminator='\n')
+            with st.popover("📋 Copiar TSV (Sheets A4:E)"):
+                st.text_area("TSV para colar no Google Sheets:", value=tsv_checking, height=180, key="checking_tsv_area")
         except Exception as e:
             logging.info(f"Consolidação: {e}")
             st.error(f"Erro ao consolidar os extratos: {e}")
+
+    # --- Visualização individual (Itaú / Bradesco) ---
+    if itau_raw is not None or bradesco_raw is not None:
+        st.divider()
+        tab_labels = []
+        if itau_raw is not None:
+            tab_labels.append(f"🟠 Itaú ({len(itau_raw)})")
+        if bradesco_raw is not None:
+            tab_labels.append(f"🔴 Bradesco ({len(bradesco_raw)})")
+
+        tabs = st.tabs(tab_labels)
+        tab_idx = 0
+
+        if itau_raw is not None:
+            with tabs[tab_idx]:
+                if st.toggle("*Classificar transações Itaú ?*", value=False, key='itau_classifier'):
+                    itau_cls = checking_account.classify_checking_account(itau_raw)
+                    itau_cls['valor (R$)'] = itau_cls['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
+                    classification_legend(show_modelo=False)
+                    st.dataframe(checking_account.style_classified(itau_cls), use_container_width=True)
+                else:
+                    st.dataframe(itau_raw, use_container_width=True)
+            tab_idx += 1
+
+        if bradesco_raw is not None:
+            with tabs[tab_idx]:
+                if st.toggle("*Classificar transações Bradesco ?*", value=False, key='bradesco_classifier'):
+                    brad_cls = checking_account.classify_checking_account(bradesco_raw)
+                    brad_cls['valor (R$)'] = brad_cls['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
+                    classification_legend(show_modelo=False)
+                    st.dataframe(checking_account.style_classified(brad_cls), use_container_width=True)
+                else:
+                    st.dataframe(bradesco_raw, use_container_width=True)

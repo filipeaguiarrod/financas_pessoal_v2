@@ -163,3 +163,53 @@ def test_write_sheets_card_block_formats_br_currency_and_posts():
         },
         timeout=30,
     )
+
+
+def test_fetch_latest_itau_statement_decodes_pdf_base64():
+    import base64
+
+    fake_pdf = b"%PDF-1.4 fake content"
+    resp = _mock_response(
+        200,
+        json_data={
+            "bank": "itau",
+            "source": "google_drive",
+            "filename": "shareFile.pdf",
+            "date": "2026-11-26T17:39:00Z",
+            "pdf_base64": base64.b64encode(fake_pdf).decode("ascii"),
+        },
+    )
+    with patch("src.invoice_client.requests.get", return_value=resp) as mock_get:
+        remote = invoice_client.fetch_latest_statement("itau", api_url="http://backend.local:7555")
+
+    mock_get.assert_called_once_with("http://backend.local:7555/statements/itau/latest", timeout=30)
+    assert remote.bank == "itau"
+    assert remote.filename == "shareFile.pdf"
+    assert remote.to_bytes_io().read() == fake_pdf
+
+
+def test_fetch_latest_bradesco_statement_integrates_with_checking_account():
+    from src import checking_account
+
+    brad_csv = (
+        "Extrato de: Ag: 670 | Conta: 12345-6;;;;;\n"
+        "Data;Histórico;Docto.;Crédito (R$);Débito (R$);Saldo (R$)\n"
+        "05/11/2026;PIX ENVIADO;647349; ;250,00;934,94\n"
+    )
+    resp = _mock_response(
+        200,
+        json_data={
+            "bank": "bradesco",
+            "source": "google_drive",
+            "filename": "bradesco.csv",
+            "date": "2026-11-26T17:56:00Z",
+            "csv_content": brad_csv,
+        },
+    )
+    with patch("src.invoice_client.requests.get", return_value=resp) as mock_get:
+        remote = invoice_client.fetch_latest_statement("bradesco", api_url="http://backend.local:7555")
+
+    mock_get.assert_called_once_with("http://backend.local:7555/statements/bradesco/latest", timeout=30)
+    df = checking_account.transform_bradesco(remote.to_bytes_io())
+    assert len(df) == 1
+    assert df.iloc[0]["valor (R$)"] == "-250,00"

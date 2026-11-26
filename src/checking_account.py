@@ -1,6 +1,7 @@
+import logging
+import re
 import unicodedata
 import pandas as pd
-import logging
 from . import classifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,40 +28,230 @@ def style_classified(df: pd.DataFrame):
     return display_df.style.apply(_color_categoria, subset=['categoria'])
 
 
-def transform_itau(itau_file) -> pd.DataFrame:
-    """Lê o XLS do Itau e retorna DataFrame com lançamentos limpos.
+def _ascii_upper(s: str) -> str:
+    # Remove non-ASCII chars before comparing — handles encoding variants
+    # e.g. DISPONÍVEL and DISPONÃVEL both become DISPONVEL
+    return ''.join(c for c in str(s) if c.isascii()).upper().strip()
 
-    Saída:
-        data        (str) data do lançamento
-        lançamento  (str) descrição
-        ag./origem  (str) agência de origem
-        valor (R$)  (str) valor formatado com vírgula
+
+_ITAU_SUJEIRAS = {
+    _ascii_upper(s) for s in [
+        'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
+        'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
+        'SALDO TOTAL DISPONÍVEL DIA', 'REND PAGO APLIC AUT APR',
+    ]
+}
+
+
+def _is_itau_sujeira(text: str) -> bool:
+    x_upper = _ascii_upper(text)
+    if x_upper in _ITAU_SUJEIRAS:
+        return True
+    if any(s in x_upper for s in ('REND PAGO APLIC AUT MAIS', 'REND PAGO APLIC AUT APR')):
+        return True
+    if 'PAG BOLETO BANCO XP' in x_upper:
+        return True
+    if 'PIX QRS NU PAGAMENT' in x_upper:
+        return True
+    return False
+
+
+def _is_pdf_file(file_obj) -> bool:
+    """Detecta se o arquivo é PDF pelo nome ou pelos magic bytes (%PDF)."""
+    name = str(getattr(file_obj, "name", "") or "").lower()
+    if name.endswith(".pdf"):
+        return True
+    if isinstance(file_obj, str):
+        return file_obj.lower().endswith(".pdf")
+    if hasattr(file_obj, "read") and hasattr(file_obj, "seek"):
+        pos = file_obj.tell() if hasattr(file_obj, "tell") else 0
+        file_obj.seek(0)
+        head = file_obj.read(5)
+        file_obj.seek(pos)
+        if isinstance(head, bytes):
+            return head.startswith(b"%PDF")
+        if isinstance(head, str):
+            return head.startswith("%PDF")
+    return False
+
+
+def _parse_br_amount(val_str: str) -> float | None:
+    cleaned = str(val_str or "").replace("R$", "").replace("\xa0", "").strip()
+    if not cleaned:
+        return None
+    cleaned = cleaned.replace(".", "").replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _normalize_heading(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return " ".join(stripped.lower().split())
+
+
+def transform_itau_pdf(pdf_file) -> pd.DataFrame:
+    """Lê o PDF de extrato conta corrente do Itaú (exportado do app) e extrai apenas lançamentos efetivados.
+
+    Ignora cabeçalho de saldos/limites, 'Lançamentos futuros', linhas de saldo diário e 'Posição consolidada'.
+    Concatena tipo + descrição como '<Lançamentos> - <Descrição>' (ex.: 'PIX ENVIADO - NOME').
     """
-    itau_file.seek(0)
-    itau = pd.read_excel(itau_file)
+    import pdfplumber
 
-    def _ascii_upper(s: str) -> str:
-        # Remove non-ASCII chars before comparing — handles encoding variants
-        # e.g. DISPONÍVEL and DISPONÃVEL both become DISPONVEL
-        return ''.join(c for c in str(s) if c.isascii()).upper().strip()
+    if hasattr(pdf_file, "seek"):
+        pdf_file.seek(0)
 
-    sujeiras = {
-        _ascii_upper(s) for s in [
-            'SALDO ANTERIOR', 'REND PAGO APLIC AUT MAIS',
-            'SDO CTA/APL AUTOMATICAS', 'SALDO DO DIA',
-            'SALDO TOTAL DISPONÍVEL DIA', 'REND PAGO APLIC AUT APR',
-        ]
+    date_re = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+    # Limites horizontais padrão (atualizados dinamicamente pelo cabeçalho da tabela no PDF)
+    col_bounds = {
+        "lanc": 95.0,
+        "desc": 250.0,
+        "valor": 405.0,
+        "saldo": 490.0,
     }
 
-    def _is_sujeira(x):
-        x_upper = _ascii_upper(x)
-        if x_upper in sujeiras:
-            return True
-        if 'PAG BOLETO BANCO XP' in x_upper:
-            return True
-        if 'PIX QRS NU PAGAMENT' in x_upper:
-            return True
-        return False
+    in_lancamentos = False
+    stop_parsing = False
+    parsed_rows: list[dict[str, str | float]] = []
+    current_tx: dict[str, str] | None = None
+
+    def _flush_current():
+        nonlocal current_tx
+        if current_tx is None:
+            return
+        tipo = " ".join(current_tx["tipo"].split()).strip()
+        desc = " ".join(current_tx["desc"].split()).strip()
+        val_num = _parse_br_amount(current_tx["valor"])
+        if val_num is not None:
+            if tipo and desc:
+                lancamento = f"{tipo} - {desc}"
+            else:
+                lancamento = desc or tipo
+            if lancamento and not _is_itau_sujeira(desc) and not _is_itau_sujeira(lancamento):
+                parsed_rows.append({
+                    "data": current_tx["data"],
+                    "lançamento": lancamento,
+                    "ag./origem": "ITAU",
+                    "valor (R$)": f"{val_num:.2f}".replace(".", ","),
+                })
+        current_tx = None
+
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            if stop_parsing:
+                break
+
+            words = page.extract_words(keep_blank_chars=False, use_text_flow=False) or []
+            lines_by_y: dict[float, list[dict]] = {}
+            for w in words:
+                y = round(float(w["top"]), 1)
+                matched_y = next((ky for ky in lines_by_y if abs(ky - y) <= 2.5), None)
+                if matched_y is None:
+                    lines_by_y[y] = []
+                    matched_y = y
+                lines_by_y[matched_y].append(w)
+
+            for y in sorted(lines_by_y):
+                row_words = sorted(lines_by_y[y], key=lambda item: float(item["x0"]))
+                full_line_text = " ".join(w["text"] for w in row_words).strip()
+                norm_line = _normalize_heading(full_line_text)
+
+                # Marcadores de fim da seção de lançamentos
+                if norm_line.startswith("posicao consolidada") or norm_line == "limites" or norm_line == "aviso":
+                    _flush_current()
+                    stop_parsing = True
+                    break
+
+                # Início da seção 'Lançamentos' (ignorando 'Lançamentos futuros')
+                if norm_line == "lancamentos":
+                    in_lancamentos = True
+                    continue
+
+                if not in_lancamentos:
+                    continue
+
+                # Cabeçalho da tabela (pode repetir em cada página)
+                if norm_line.startswith("data lancamentos descricao"):
+                    _flush_current()
+                    for w in row_words:
+                        wt = _normalize_heading(w["text"])
+                        x0 = float(w["x0"])
+                        if wt == "lancamentos":
+                            col_bounds["lanc"] = x0 - 5.0
+                        elif wt == "descricao":
+                            col_bounds["desc"] = x0 - 5.0
+                        elif wt == "valor":
+                            col_bounds["valor"] = x0 - 15.0
+                        elif wt == "saldo":
+                            col_bounds["saldo"] = x0 - 15.0
+                    continue
+
+                # Separa palavras por coluna
+                date_parts: list[str] = []
+                tipo_parts: list[str] = []
+                desc_parts: list[str] = []
+                valor_parts: list[str] = []
+                saldo_parts: list[str] = []
+
+                for w in row_words:
+                    x0 = float(w["x0"])
+                    txt = w["text"]
+                    if x0 < col_bounds["lanc"]:
+                        date_parts.append(txt)
+                    elif x0 < col_bounds["desc"]:
+                        tipo_parts.append(txt)
+                    elif x0 < col_bounds["valor"]:
+                        desc_parts.append(txt)
+                    elif x0 < col_bounds["saldo"]:
+                        valor_parts.append(txt)
+                    else:
+                        saldo_parts.append(txt)
+
+                date_str = " ".join(date_parts).strip()
+                tipo_str = " ".join(tipo_parts).strip()
+                desc_str = " ".join(desc_parts).strip()
+                valor_str = " ".join(valor_parts).strip()
+                saldo_str = " ".join(saldo_parts).strip()
+
+                if date_re.match(date_str):
+                    _flush_current()
+                    # Linha de saldo diário: tem data e saldo, mas não tem valor na coluna Valor (R$)
+                    if not valor_str and saldo_str:
+                        continue
+                    if not valor_str and not tipo_str and not desc_str:
+                        continue
+                    current_tx = {
+                        "data": date_str,
+                        "tipo": tipo_str,
+                        "desc": desc_str,
+                        "valor": valor_str,
+                    }
+                elif current_tx is not None:
+                    # Linha de continuação de 'Lançamentos' e/ou 'Descrição'
+                    if tipo_str:
+                        current_tx["tipo"] = f"{current_tx['tipo']} {tipo_str}".strip()
+                    if desc_str:
+                        current_tx["desc"] = f"{current_tx['desc']} {desc_str}".strip()
+                    if valor_str and not current_tx["valor"]:
+                        current_tx["valor"] = valor_str
+
+    _flush_current()
+
+    if not parsed_rows:
+        return pd.DataFrame(columns=['data', 'lançamento', 'ag./origem', 'valor (R$)'])
+
+    # O PDF do Itaú vem do mais recente para o mais antigo; inverter preserva a ordem cronológica crescente
+    parsed_rows.reverse()
+    return pd.DataFrame(parsed_rows, columns=['data', 'lançamento', 'ag./origem', 'valor (R$)'])
+
+
+def _transform_itau_excel(itau_file) -> pd.DataFrame:
+    """Lê o XLS legado do Itaú e retorna DataFrame com lançamentos limpos."""
+    itau_file.seek(0)
+    itau = pd.read_excel(itau_file)
 
     try:
         inicio = itau.loc[itau['Logotipo Itaú'] == 'lançamentos'].index[0] + 1
@@ -71,11 +262,25 @@ def transform_itau(itau_file) -> pd.DataFrame:
         itau = itau.iloc[inicio:, 0:4]
 
     itau.columns = ['data', 'lançamento', 'ag./origem', 'valor (R$)']
-    itau = itau.loc[~itau['lançamento'].apply(_is_sujeira)]
+    itau = itau.loc[~itau['lançamento'].apply(_is_itau_sujeira)]
     itau['valor (R$)'] = itau['valor (R$)'].astype('str').str.replace('.', ',')
     itau['ag./origem'] = 'ITAU'
 
     return itau
+
+
+def transform_itau(itau_file) -> pd.DataFrame:
+    """Lê o extrato do Itaú (.pdf ou .xls) e retorna DataFrame com lançamentos limpos.
+
+    Saída:
+        data        (str) data do lançamento
+        lançamento  (str) descrição
+        ag./origem  (str) 'ITAU'
+        valor (R$)  (str) valor formatado com vírgula
+    """
+    if _is_pdf_file(itau_file):
+        return transform_itau_pdf(itau_file)
+    return _transform_itau_excel(itau_file)
 
 
 def classify_checking_account(df, cat_col='lançamento', numeric_col='valor (R$)'):
@@ -153,6 +358,10 @@ def transform_bradesco(bradesco_file) -> pd.DataFrame:
         line = line.strip()
         if not line:
             continue
+
+        norm_line = _normalize_heading(line)
+        if norm_line.startswith("lancamentos periodicos") or norm_line.startswith("os dados acima tem como base"):
+            break
 
         parts = [p.strip() for p in line.split(';')]
         if len(parts) < 2:
