@@ -35,9 +35,10 @@ Interface Streamlit para padronizar e processar extratos e faturas (CSV, XLS e P
   - Ao carregar Itaú e Bradesco, consolida ambos automaticamente removendo rendimentos automáticos, pagamentos de fatura (XP/Nubank) e transferências internas entre as duas contas.
   - Classifica os lançamentos via Regras do Usuário + Histórico no PostgreSQL e disponibiliza botão **"📋 Copiar TSV (Sheets A4:E)"** pronto para colagem na planilha.
 
-### Módulo de Análise de Parcelas
-Analisa as parcelas das faturas dos cartões, facilitando o acompanhamento de despesas parceladas.
-Pode usar modelos de LLM para criar um report de extensão e valor das contas parceladas.
+### Módulo de Análise de Parcelas (`pages/installments.py`)
+Analisa as parcelas das faturas dos cartões (XP e Nubank), facilitando o acompanhamento de despesas parceladas:
+- **Busca automática via `financas_backend`:** botões para carregar **XP + Nubank juntos**, **só XP (Drive)** ou **só Nubank (Gmail)**, além de upload manual de múltiplos CSVs.
+- Gera crosstable de projeção mensal e gráficos analíticos consolidados (participação por banco, por estabelecimento e evolução mensal).
 
 ### Aba E-commerce
 Processa dados de compras em lojinhas online através de HTML tabulado, ajudando na organização e categorização de gastos com e-commerce.
