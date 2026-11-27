@@ -213,3 +213,65 @@ def test_fetch_latest_bradesco_statement_integrates_with_checking_account():
     df = checking_account.transform_bradesco(remote.to_bytes_io())
     assert len(df) == 1
     assert df.iloc[0]["valor (R$)"] == "-250,00"
+
+
+def test_fetch_and_write_sheets_checking_block():
+    import datetime
+    import pandas as pd
+
+    resp_get = _mock_response(
+        200,
+        json_data={
+            "mes": "novembro",
+            "range": "A4:E1000",
+            "max_rows": 997,
+            "rows": [
+                ["Recebimentos", "30/10/2026", "Transf Saldo c/sal p/cc - Midway S/a Credito Financiamento", "BRAD", "5.025,57"],
+                ["Adicionais", "30/10/2026", "Transf Saldo c/sal p/cc - Midway S/a Credito Financiamento", "BRAD", "1456,85"],
+            ],
+        },
+    )
+    with patch("src.invoice_client.requests.get", return_value=resp_get) as mock_get:
+        df_sheets, meta = invoice_client.fetch_sheets_checking_block("novembro", api_url="http://backend.local:7555")
+
+    mock_get.assert_called_once_with(
+        "http://backend.local:7555/sheets/checking-block",
+        params={"mes": "novembro"},
+        timeout=30,
+    )
+    assert meta["range"] == "A4:E1000"
+    assert len(df_sheets) == 2
+
+    df_ext = pd.DataFrame([
+        {"data": "28/10/2026", "lançamento": "PAGTO ANTIGO", "ag./origem": "BRAD", "valor (R$)": "-100,00"},
+        {"data": "30/10/2026", "lançamento": "TRANSF SALDO C/SAL P/CC", "ag./origem": "BRAD", "valor (R$)": "5025,57"},
+        {"data": "30/10/2026", "lançamento": "TRANSF SALDO C/SAL P/CC", "ag./origem": "BRAD", "valor (R$)": "1456,85"},
+        {"data": "02/11/2026", "lançamento": "PIX ENVIADO - PADARIA", "ag./origem": "ITAU", "valor (R$)": "-25,00", "categoria": "Alimentação"},
+    ])
+    df_rec, stats = reconciler.reconcile_checking_transactions(
+        df_sheets,
+        df_ext,
+        cutoff_date=datetime.date(2026, 10, 30),
+    )
+    assert stats["filtrados_por_corte"] == 1
+    assert stats["mantidos"] == 2
+    assert stats["novos"] == 1
+    assert len(df_rec) == 3
+    # Preserva categorias e descrição rica do Sheets nos dois recebimentos de 30/10
+    row_5025 = df_rec[df_rec["Valor"] == 5025.57].iloc[0]
+    row_1456 = df_rec[df_rec["Valor"] == 1456.85].iloc[0]
+    assert row_5025["categoria"] == "Recebimentos"
+    assert "Midway" in row_5025["Lançamento"]
+    assert row_1456["categoria"] == "Adicionais"
+
+    resp_post = _mock_response(
+        200,
+        json_data={"status": "success", "mes": "novembro", "range": "A4:E1000", "written_rows": 3},
+    )
+    with patch("src.invoice_client.requests.post", return_value=resp_post) as mock_post:
+        res = invoice_client.write_sheets_checking_block("novembro", df_rec, api_url="http://backend.local:7555")
+
+    assert res["written_rows"] == 3
+    sent_rows = mock_post.call_args.kwargs["json"]["rows"]
+    assert len(sent_rows) == 3
+    assert sent_rows[0][3] == "BRAD"

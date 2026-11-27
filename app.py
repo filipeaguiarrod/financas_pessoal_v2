@@ -476,16 +476,22 @@ with st.expander("🏦 Conta Corrente", expanded=False):
             st.error(f"Erro ao processar extrato Bradesco: {e}")
 
     # --- Consolidação automática (quando ambos estiverem carregados) ---
+    active_checking_df = None
+    active_checking_classified = False
+
     if itau_raw is not None and bradesco_raw is not None:
         try:
             st.subheader("📊 Extrato Consolidado (Itaú + Bradesco)")
             merged = checking_account.consolidate_checking_accounts(itau_raw, bradesco_raw)
+            active_checking_df = merged.copy()
 
             if st.toggle("*Classificar transações consolidadas ?*", value=False, key='consolidated_classifier'):
                 merged_class = checking_account.classify_checking_account(merged)
                 merged_class['valor (R$)'] = merged_class['valor (R$)'].map(lambda x: f"{x:.2f}".replace('.', ','))
                 classification_legend(show_modelo=False)
                 st.dataframe(checking_account.style_classified(merged_class), use_container_width=True)
+                active_checking_df = merged_class.copy()
+                active_checking_classified = True
                 tsv_df = merged_class.drop(columns=['_source'], errors='ignore')
             else:
                 st.dataframe(merged, use_container_width=True)
@@ -497,6 +503,181 @@ with st.expander("🏦 Conta Corrente", expanded=False):
         except Exception as e:
             logging.info(f"Consolidação: {e}")
             st.error(f"Erro ao consolidar os extratos: {e}")
+    elif itau_raw is not None:
+        active_checking_df = itau_raw.copy()
+    elif bradesco_raw is not None:
+        active_checking_df = bradesco_raw.copy()
+
+    # --- Conciliação Integrada com Google Sheets (Conta Corrente A4:E1000) ---
+    if active_checking_df is not None and not active_checking_df.empty:
+        st.divider()
+        st.subheader("🔄 Conciliar Conta Corrente com Google Sheets")
+
+        checking_sig = f"{len(active_checking_df)}:{active_checking_df['valor (R$)'].iloc[0]}:{active_checking_df['valor (R$)'].iloc[-1]}"
+        if st.session_state.get("checking_reconcile_sig") != checking_sig:
+            st.session_state.pop("checking_reconcile_state", None)
+            st.session_state["checking_reconcile_sig"] = checking_sig
+
+        default_checking_range = invoice_client.DEFAULT_CHECKING_SHEET_RANGE
+        now_dt = datetime.datetime.now()
+        current_month_idx = now_dt.month - 1
+
+        col_ck_m, col_ck_cut_on, col_ck_cut_dt = st.columns([1.2, 1.0, 1.3], vertical_alignment="bottom")
+        with col_ck_m:
+            ck_month = st.selectbox(
+                "Aba do mês no Google Sheets",
+                options=MONTHS_PT,
+                index=current_month_idx,
+                key="checking_reconcile_month",
+                help=f"Bloco de Conta Corrente: {default_checking_range}",
+            )
+        with col_ck_cut_on:
+            use_cutoff = st.checkbox(
+                "Filtrar por data de corte",
+                value=True,
+                key="checking_use_cutoff",
+                help="Mantém apenas lançamentos do extrato a partir da data selecionada.",
+            )
+        with col_ck_cut_dt:
+            default_cutoff = datetime.date(now_dt.year, now_dt.month, 1)
+            cutoff_date = st.date_input(
+                "A partir de",
+                value=default_cutoff,
+                format="DD/MM/YYYY",
+                disabled=not use_cutoff,
+                key="checking_cutoff_date",
+            )
+
+        if st.button(
+            f"🔄 Ler Sheets ({default_checking_range}) e Conciliar",
+            type="primary",
+            use_container_width=True,
+            key="btn_checking_reconcile_sheets",
+        ):
+            try:
+                with st.spinner(f"Lendo aba '{ck_month}' ({default_checking_range}) no Google Sheets e conciliando..."):
+                    df_sheets_ck, sheets_ck_meta = invoice_client.fetch_sheets_checking_block(ck_month)
+                    if active_checking_classified and "categoria" in active_checking_df.columns:
+                        df_ext_cls = active_checking_df.copy()
+                    else:
+                        df_ext_cls = checking_account.classify_checking_account(active_checking_df)
+                    df_ck_rec, ck_rec_stats = reconciler.reconcile_checking_transactions(
+                        df_sheets_ck,
+                        df_ext_cls,
+                        cutoff_date=cutoff_date if use_cutoff else None,
+                    )
+                    st.session_state["checking_reconcile_state"] = {
+                        "df": df_ck_rec,
+                        "stats": ck_rec_stats,
+                        "meta": sheets_ck_meta,
+                        "cutoff": cutoff_date if use_cutoff else None,
+                    }
+            except invoice_client.InvoiceClientError as rec_err:
+                st.error(str(rec_err))
+
+        ck_rec_state = st.session_state.get("checking_reconcile_state")
+        if ck_rec_state is not None:
+            df_ck_rec = ck_rec_state["df"]
+            ck_stats = ck_rec_state["stats"]
+            ck_meta = ck_rec_state["meta"]
+            ck_cutoff = ck_rec_state.get("cutoff")
+
+            removidos_ck = ck_stats.get("removidos", 0)
+            df_ck_disc = ck_stats.get("df_descartados", pd.DataFrame())
+            val_antigo_ck = ck_stats.get("valor_antigo", 0.0)
+            val_novo_ck = ck_stats.get("valor_novo", 0.0)
+            val_ext_ck = ck_stats.get("valor_extrato", 0.0)
+            bate_ext = ck_stats.get("bate_com_extrato", True)
+            filtrados_corte = ck_stats.get("filtrados_por_corte", 0)
+
+            cutoff_txt = f" | corte >= **{ck_cutoff.strftime('%d/%m/%Y')}** ({filtrados_corte} anterior(es) ignorado(s))" if ck_cutoff else ""
+            st.caption(
+                f"Destino: aba **{ck_meta['mes']}** | bloco **{ck_meta['range']}** "
+                f"(capacidade máxima: {ck_meta.get('max_rows', '-')} linhas){cutoff_txt}"
+            )
+
+            cm1, cm2 = st.columns(2)
+            cm1.metric("Saldo Líquido Anterior (Sheets)", _format_brl(val_antigo_ck))
+            diff_ck = round(val_novo_ck - val_antigo_ck, 2)
+            cm2.metric(
+                "Saldo Líquido Conciliado (Atual)",
+                _format_brl(val_novo_ck),
+                delta=f"{'+' if diff_ck >= 0 else ''}{_format_brl(diff_ck)}" if abs(diff_ck) >= 0.01 else "Sem diferença",
+            )
+
+            if bate_ext:
+                st.success(
+                    f"✅ Bate 100% com o extrato filtrado ({_format_brl(val_ext_ck)}) — "
+                    f"**{ck_stats.get('mantidos', 0)}** mantido(s) do Sheets, **{ck_stats.get('novos', 0)}** novo(s)."
+                )
+            else:
+                st.error(f"⚠️ Diferença em relação ao extrato ({_format_brl(val_ext_ck)}): {_format_brl(val_novo_ck - val_ext_ck)}.")
+
+            tab_ck_final, tab_ck_disc = st.tabs([
+                f"📋 Consolidado Final ({len(df_ck_rec)})",
+                f"🗑️ Apenas no Sheets ({removidos_ck})",
+            ])
+
+            with tab_ck_final:
+                st.caption("Você pode ajustar qualquer **categoria** diretamente na tabela antes de enviar ao Google Sheets.")
+                edited_ck_df = st.data_editor(
+                    df_ck_rec[["categoria", "Data", "Lançamento", "Banco", "Valor", "_status"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Data", "Lançamento", "Banco", "Valor", "_status"],
+                    column_config={
+                        "categoria": st.column_config.TextColumn("Categoria"),
+                        "Data": st.column_config.TextColumn("Data"),
+                        "Lançamento": st.column_config.TextColumn("Lançamento"),
+                        "Banco": st.column_config.TextColumn("Banco"),
+                        "Valor": st.column_config.NumberColumn("Valor (R$)", format="%.2f"),
+                        "_status": st.column_config.TextColumn("Status"),
+                    },
+                    key=f"ck_rec_editor_{ck_meta['mes']}",
+                )
+
+                confirm_ck_write = st.checkbox(
+                    f"Confirmo gravar **{len(edited_ck_df)} lançamento(s)** diretamente na aba "
+                    f"**{ck_meta['mes']}** ({ck_meta['range']})",
+                    value=False,
+                    key=f"ck_rec_confirm_{ck_meta['mes']}",
+                )
+
+                col_ck_send, col_ck_tsv = st.columns([2, 1])
+                with col_ck_send:
+                    if st.button(
+                        f"📤 Enviar direto para o Google Sheets ({ck_meta['range']})",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=not confirm_ck_write,
+                        key="btn_ck_write_sheets",
+                    ):
+                        try:
+                            with st.spinner(f"Gravando em {ck_meta['mes']} ({ck_meta['range']})..."):
+                                write_res = invoice_client.write_sheets_checking_block(
+                                    ck_meta["mes"],
+                                    edited_ck_df,
+                                )
+                            st.success(
+                                f"✅ **{write_res.get('written_rows', len(edited_ck_df))} lançamento(s)** "
+                                f"gravados com sucesso na aba **{write_res.get('mes')}** ({write_res.get('range')})!"
+                            )
+                        except invoice_client.InvoiceClientError as write_err:
+                            st.error(str(write_err))
+                with col_ck_tsv:
+                    tsv_ck_out = reconciler.to_checking_sheets_tsv(edited_ck_df, include_header=False)
+                    with st.popover("📋 Copiar TSV", use_container_width=True):
+                        st.text_area("TSV para colar manualmente:", value=tsv_ck_out, height=180, key="ck_rec_tsv_area")
+
+            with tab_ck_disc:
+                if removidos_ck > 0 and not df_ck_disc.empty:
+                    st.dataframe(
+                        df_ck_disc[["categoria", "Data", "Lançamento", "Banco", "Valor", "_motivo"]],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.success("Nenhum lançamento descartado — tudo do Sheets casou com o extrato.")
 
     # --- Visualização individual (Itaú / Bradesco) ---
     if itau_raw is not None or bradesco_raw is not None:

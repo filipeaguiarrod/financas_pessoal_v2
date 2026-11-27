@@ -23,6 +23,7 @@ DEFAULT_SHEET_RANGES = {
     "xp": "G4:J98",
     "nubank": "G99:J200",
 }
+DEFAULT_CHECKING_SHEET_RANGE = "A4:E1000"
 
 
 class InvoiceClientError(RuntimeError):
@@ -297,6 +298,115 @@ def write_sheets_card_block(
             _extract_error_detail(
                 resp,
                 f"Erro HTTP {resp.status_code} ao gravar bloco {normalized_bank.upper()} no Sheets.",
+            )
+        )
+
+    return resp.json()
+
+
+def fetch_sheets_checking_block(
+    mes: str,
+    *,
+    api_url: str | None = None,
+    timeout: int = 30,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Lê o bloco atual da conta corrente (A4:E1000) no Google Sheets via financas_backend."""
+    base_url = (api_url or get_backend_api_url()).rstrip("/")
+    endpoint = f"{base_url}/sheets/checking-block"
+
+    try:
+        resp = requests.get(
+            endpoint,
+            params={"mes": mes.strip().lower()},
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise InvoiceClientError(
+            f"Não foi possível conectar ao financas_backend ({base_url}). "
+            "Verifique se o servidor está ativo e se FINANCAS_API_URL está configurado."
+        ) from exc
+
+    if resp.status_code != 200:
+        raise InvoiceClientError(
+            _extract_error_detail(
+                resp,
+                f"Erro HTTP {resp.status_code} ao ler bloco de Conta Corrente no Sheets.",
+            )
+        )
+
+    payload = resp.json()
+    raw_rows = payload.get("rows") or []
+
+    records = []
+    for row in raw_rows:
+        padded = list(row[:5]) + [""] * max(0, 5 - len(row))
+        records.append({
+            "categoria": str(padded[0]).strip() or None,
+            "Data": str(padded[1]).strip(),
+            "Lançamento": str(padded[2]).strip(),
+            "Banco": str(padded[3]).strip().upper(),
+            "Valor": reconciler.parse_amount(padded[4]),
+        })
+
+    cols = ["categoria", "Data", "Lançamento", "Banco", "Valor"]
+    df_sheets = pd.DataFrame(records, columns=cols) if records else pd.DataFrame(columns=cols)
+    meta = {
+        "mes": payload.get("mes", mes.strip().lower()),
+        "range": payload.get("range", DEFAULT_CHECKING_SHEET_RANGE),
+        "max_rows": int(payload.get("max_rows", 997)),
+        "row_count": len(df_sheets),
+    }
+    return df_sheets, meta
+
+
+def format_checking_rows_for_sheets(df_reconciled: pd.DataFrame) -> list[list[str]]:
+    """Converte o DataFrame reconciliado para linhas [categoria, Data, Lançamento, Banco, Valor_BR]."""
+    if df_reconciled is None or df_reconciled.empty:
+        return []
+
+    rows: list[list[str]] = []
+    for _, row in df_reconciled.iterrows():
+        cat = "" if pd.isna(row.get("categoria")) else str(row.get("categoria")).strip()
+        dt_str = "" if pd.isna(row.get("Data")) else str(row.get("Data")).strip()
+        lanc = "" if pd.isna(row.get("Lançamento")) else str(row.get("Lançamento")).strip()
+        banco = "" if pd.isna(row.get("Banco")) else str(row.get("Banco")).strip().upper()
+        val = reconciler.parse_amount(row.get("Valor"))
+        val_br = f"{val:.2f}".replace(".", ",")
+        rows.append([cat, dt_str, lanc, banco, val_br])
+    return rows
+
+
+def write_sheets_checking_block(
+    mes: str,
+    df_reconciled: pd.DataFrame,
+    *,
+    api_url: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """Envia o bloco reconciliado de conta corrente para gravação direta no Google Sheets."""
+    base_url = (api_url or get_backend_api_url()).rstrip("/")
+    endpoint = f"{base_url}/sheets/checking-block"
+    rows = format_checking_rows_for_sheets(df_reconciled)
+
+    try:
+        resp = requests.post(
+            endpoint,
+            json={
+                "mes": mes.strip().lower(),
+                "rows": rows,
+            },
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise InvoiceClientError(
+            f"Não foi possível conectar ao financas_backend ({base_url}) para gravar no Sheets."
+        ) from exc
+
+    if resp.status_code != 200:
+        raise InvoiceClientError(
+            _extract_error_detail(
+                resp,
+                f"Erro HTTP {resp.status_code} ao gravar bloco de Conta Corrente no Sheets.",
             )
         )
 

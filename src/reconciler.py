@@ -542,3 +542,242 @@ def to_sheets_tsv(df: pd.DataFrame, include_header: bool = False) -> str:
 
     tsv_data = out_df.to_csv(sep='\t', index=False, header=include_header, lineterminator='\n')
     return tsv_data
+
+
+def reconcile_checking_transactions(
+    df_sheets: pd.DataFrame,
+    df_extrato: pd.DataFrame,
+    cutoff_date: Optional[date] = None,
+    default_year: Optional[int] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Reconcilia lançamentos de Conta Corrente (Itaú + Bradesco) com o bloco A4:E1000 do Google Sheets.
+
+    Colunas de saída: ['categoria', 'Data', 'Lançamento', 'Banco', 'Valor', '_status']
+    Suporta data de corte inicial (`cutoff_date`) e matching em 3 níveis:
+      1. Exato: (data, valor, banco, lançamento normalizado)
+      2. Prefixo/Contenção: mesmo (data, valor, banco) com uma descrição contida na outra
+      3. Fallback: mesmo (data, valor, banco) exato no mesmo dia
+    """
+    empty_result_cols = ['categoria', 'Data', 'Lançamento', 'Banco', 'Valor', '_status']
+    empty_disc_cols = ['categoria', 'Data', 'Lançamento', 'Banco', 'Valor', '_motivo']
+
+    def _standardize_checking_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame(columns=['categoria', 'Data', 'Lançamento', 'Banco', 'Valor'])
+        work = df.copy()
+        rename_map = {}
+        if 'data' in work.columns and 'Data' not in work.columns:
+            rename_map['data'] = 'Data'
+        if 'lançamento' in work.columns and 'Lançamento' not in work.columns:
+            rename_map['lançamento'] = 'Lançamento'
+        if 'ag./origem' in work.columns and 'Banco' not in work.columns:
+            rename_map['ag./origem'] = 'Banco'
+        if 'valor (R$)' in work.columns and 'Valor' not in work.columns:
+            rename_map['valor (R$)'] = 'Valor'
+        if rename_map:
+            work = work.rename(columns=rename_map)
+        for col in ('categoria', 'Data', 'Lançamento', 'Banco', 'Valor'):
+            if col not in work.columns:
+                work[col] = None
+        return work[['categoria', 'Data', 'Lançamento', 'Banco', 'Valor']].copy()
+
+    ext_work = _standardize_checking_df(df_extrato)
+    sheets_work = _standardize_checking_df(df_sheets)
+
+    if not default_year and not ext_work.empty:
+        for d in ext_work['Data']:
+            m = re.search(r'(\d{4})', str(d))
+            if m:
+                default_year = int(m.group(1))
+                break
+
+    # Normaliza extrato e aplica data de corte (se configurada)
+    filtrados_por_corte = 0
+    if not ext_work.empty:
+        ext_dates = [parse_date(d, default_year=default_year) for d in ext_work['Data']]
+        ext_work['_date_obj'] = [d[0] for d in ext_dates]
+        ext_work['Data'] = [d[1] or str(orig) for d, orig in zip(ext_dates, ext_work['Data'])]
+        ext_work['_val_num'] = ext_work['Valor'].apply(parse_amount)
+        ext_work['_bank_norm'] = ext_work['Banco'].fillna('').astype(str).str.strip().str.upper()
+        ext_work['_desc_norm'] = ext_work['Lançamento'].apply(normalize_establishment)
+
+        if cutoff_date is not None:
+            before_count = len(ext_work)
+            ext_work = ext_work[
+                ext_work['_date_obj'].apply(lambda d: d is not None and d >= cutoff_date)
+            ].reset_index(drop=True)
+            filtrados_por_corte = before_count - len(ext_work)
+
+    # Normaliza Sheets
+    if not sheets_work.empty:
+        sheets_dates = [parse_date(d, default_year=default_year) for d in sheets_work['Data']]
+        sheets_work['_date_obj'] = [d[0] for d in sheets_dates]
+        sheets_work['Data'] = [d[1] or str(orig) for d, orig in zip(sheets_dates, sheets_work['Data'])]
+        sheets_work['_val_num'] = sheets_work['Valor'].apply(parse_amount)
+        sheets_work['_bank_norm'] = sheets_work['Banco'].fillna('').astype(str).str.strip().str.upper()
+        sheets_work['_desc_norm'] = sheets_work['Lançamento'].apply(normalize_establishment)
+        sheets_work['_row_id'] = list(range(len(sheets_work)))
+
+    if ext_work.empty:
+        val_antigo = round(float(sheets_work['_val_num'].sum()), 2) if not sheets_work.empty else 0.0
+        df_disc = pd.DataFrame(columns=empty_disc_cols)
+        if not sheets_work.empty:
+            df_disc = pd.DataFrame({
+                'categoria': sheets_work['categoria'].fillna('').astype(str),
+                'Data': sheets_work['Data'],
+                'Lançamento': sheets_work['Lançamento'].fillna('').astype(str),
+                'Banco': sheets_work['_bank_norm'],
+                'Valor': sheets_work['_val_num'],
+                '_motivo': 'Não encontrado no extrato (ou anterior à data de corte)',
+            })
+        return pd.DataFrame(columns=empty_result_cols), {
+            'total': 0, 'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0,
+            'removidos': len(df_disc),
+            'valor_removido': round(float(df_disc['Valor'].sum()), 2) if not df_disc.empty else 0.0,
+            'df_descartados': df_disc,
+            'valor_antigo': val_antigo, 'valor_extrato': 0.0, 'valor_novo': 0.0,
+            'diff_valor': -val_antigo, 'diff_extrato': 0.0, 'bate_com_extrato': True,
+            'filtrados_por_corte': filtrados_por_corte,
+        }
+
+    matched_sheet_ids: set[int] = set()
+    reconciled_rows = []
+    stats = {'mantidos': 0, 'preenchidos': 0, 'novos': 0, 'sem_categoria': 0}
+
+    for _, e_row in ext_work.iterrows():
+        matched_s = None
+        match_level = 0
+        if not sheets_work.empty:
+            avail = sheets_work[~sheets_work['_row_id'].isin(matched_sheet_ids)]
+            same_dvb = avail[
+                (avail['_date_obj'] == e_row['_date_obj']) &
+                (avail['_val_num'] == e_row['_val_num']) &
+                (avail['_bank_norm'] == e_row['_bank_norm'])
+            ]
+            if not same_dvb.empty:
+                # Nível 1: descrição normalizada idêntica
+                exact = same_dvb[same_dvb['_desc_norm'] == e_row['_desc_norm']]
+                if not exact.empty:
+                    matched_s = exact.iloc[0]
+                    match_level = 1
+                else:
+                    # Nível 2: contenção/prefixo (ex: 'transfsaldocsalpcc' in 'transfsaldocsalpccmidway...')
+                    e_desc = e_row['_desc_norm']
+                    for _, cand in same_dvb.iterrows():
+                        s_desc = cand['_desc_norm']
+                        if e_desc and s_desc and (e_desc in s_desc or s_desc in e_desc):
+                            matched_s = cand
+                            match_level = 2
+                            break
+                    # Nível 3: mesmo dia + valor exato + banco (ex: XLS vs PDF do Itaú)
+                    if matched_s is None:
+                        matched_s = same_dvb.iloc[0]
+                        match_level = 3
+
+        if matched_s is not None:
+            matched_sheet_ids.add(int(matched_s['_row_id']))
+            user_cat = matched_s['categoria']
+            user_cat_valid = user_cat is not None and not pd.isna(user_cat) and str(user_cat).strip() != ""
+            ext_cat = e_row['categoria']
+            ext_cat_valid = ext_cat is not None and not pd.isna(ext_cat) and str(ext_cat).strip() != ""
+
+            if user_cat_valid:
+                final_cat = str(user_cat).strip()
+                status = 'Mantido do Sheets'
+                stats['mantidos'] += 1
+            elif ext_cat_valid:
+                final_cat = str(ext_cat).strip()
+                status = 'Preenchido do Extrato'
+                stats['preenchidos'] += 1
+            else:
+                final_cat = ""
+                status = 'Sem Categoria'
+                stats['sem_categoria'] += 1
+
+            # Se casou por prefixo/fallback e o Sheets tem descrição mais rica, preserva-a
+            s_desc_raw = "" if pd.isna(matched_s['Lançamento']) else str(matched_s['Lançamento']).strip()
+            e_desc_raw = "" if pd.isna(e_row['Lançamento']) else str(e_row['Lançamento']).strip()
+            final_desc = s_desc_raw if (match_level >= 2 and len(s_desc_raw) > len(e_desc_raw)) else e_desc_raw
+
+            reconciled_rows.append({
+                'categoria': final_cat,
+                'Data': e_row['Data'],
+                'Lançamento': final_desc,
+                'Banco': e_row['_bank_norm'],
+                'Valor': e_row['_val_num'],
+                '_status': status,
+                '_date_obj': e_row['_date_obj'],
+            })
+        else:
+            ext_cat = e_row['categoria']
+            ext_cat_valid = ext_cat is not None and not pd.isna(ext_cat) and str(ext_cat).strip() != ""
+            final_cat = str(ext_cat).strip() if ext_cat_valid else ""
+            stats['novos'] += 1
+            if not ext_cat_valid:
+                stats['sem_categoria'] += 1
+            reconciled_rows.append({
+                'categoria': final_cat,
+                'Data': e_row['Data'],
+                'Lançamento': "" if pd.isna(e_row['Lançamento']) else str(e_row['Lançamento']).strip(),
+                'Banco': e_row['_bank_norm'],
+                'Valor': e_row['_val_num'],
+                '_status': 'Novo do Extrato',
+                '_date_obj': e_row['_date_obj'],
+            })
+
+    disc_rows = []
+    if not sheets_work.empty:
+        for _, s_row in sheets_work.iterrows():
+            if int(s_row['_row_id']) not in matched_sheet_ids:
+                s_cat = s_row['categoria']
+                disc_rows.append({
+                    'categoria': "" if pd.isna(s_cat) else str(s_cat).strip(),
+                    'Data': s_row['Data'],
+                    'Lançamento': "" if pd.isna(s_row['Lançamento']) else str(s_row['Lançamento']).strip(),
+                    'Banco': s_row['_bank_norm'],
+                    'Valor': s_row['_val_num'],
+                    '_motivo': 'Não encontrado no extrato (ou anterior à data de corte)',
+                })
+
+    df_disc = pd.DataFrame(disc_rows) if disc_rows else pd.DataFrame(columns=empty_disc_cols)
+    df_result = pd.DataFrame(reconciled_rows) if reconciled_rows else pd.DataFrame(columns=empty_result_cols)
+
+    if not df_result.empty and '_date_obj' in df_result.columns:
+        df_result['_sort_date'] = df_result['_date_obj'].apply(lambda d: d.isoformat() if d else '9999-12-31')
+        df_result = df_result.sort_values(by=['_sort_date', 'Banco', 'Lançamento']).reset_index(drop=True)
+        df_result = df_result.drop(columns=['_sort_date', '_date_obj'], errors='ignore')
+
+    valor_antigo = round(float(sheets_work['_val_num'].sum()), 2) if not sheets_work.empty else 0.0
+    valor_extrato = round(float(ext_work['_val_num'].sum()), 2) if not ext_work.empty else 0.0
+    valor_novo = round(float(df_result['Valor'].sum()), 2) if not df_result.empty else 0.0
+    valor_removido = round(float(df_disc['Valor'].sum()), 2) if not df_disc.empty else 0.0
+
+    stats.update({
+        'total': len(df_result),
+        'removidos': len(df_disc),
+        'valor_removido': valor_removido,
+        'df_descartados': df_disc,
+        'valor_antigo': valor_antigo,
+        'valor_extrato': valor_extrato,
+        'valor_novo': valor_novo,
+        'diff_valor': round(valor_novo - valor_antigo, 2),
+        'diff_extrato': round(valor_novo - valor_extrato, 2),
+        'bate_com_extrato': bool(abs(valor_novo - valor_extrato) < 0.01),
+        'filtrados_por_corte': filtrados_por_corte,
+    })
+    return df_result, stats
+
+
+def to_checking_sheets_tsv(df: pd.DataFrame, include_header: bool = False) -> str:
+    """Exporta DataFrame de Conta Corrente para TSV de 5 colunas: Categoria, Data, Lançamento, Banco, Valor."""
+    if df is None or df.empty:
+        return ""
+    out_df = pd.DataFrame()
+    out_df['categoria'] = df['categoria'].fillna('').astype(str) if 'categoria' in df.columns else ''
+    out_df['Data'] = df['Data'].fillna('').astype(str)
+    out_df['Lançamento'] = df['Lançamento'].fillna('').astype(str)
+    out_df['Banco'] = df['Banco'].fillna('').astype(str)
+    out_df['Valor'] = df['Valor'].apply(
+        lambda x: f"{x:.2f}".replace('.', ',') if isinstance(x, (int, float)) else str(x)
+    )
+    return out_df.to_csv(sep='\t', index=False, header=include_header, lineterminator='\n')

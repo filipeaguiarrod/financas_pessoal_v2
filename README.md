@@ -31,9 +31,9 @@ Interface Streamlit para padronizar e processar extratos e faturas (CSV, XLS e P
   - Botão único **"📥 Buscar Itaú + Bradesco (Drive)"** (além de busca individual e upload manual de `.pdf`/`.xls` para Itaú e `.csv` para Bradesco):
     - **Itaú (`GET /statements/itau/latest`):** baixa o extrato `.pdf` mais recente do Google Drive e extrai apenas os lançamentos efetivados com `pdfplumber` (ignorando cabeçalho de saldos/limites, `Lançamentos futuros`, linhas de saldo diário e `Posição consolidada`), montando a descrição no formato `<Tipo> - <Descrição>`.
     - **Bradesco (`GET /statements/bradesco/latest`):** baixa o extrato `.csv` mais recente do Google Drive (diferenciando-o automaticamente dos CSVs da XP na mesma pasta) e interrompe a leitura antes de `Lançamentos periódicos`.
-- **Consolidação automática e Classificação:**
+- **Consolidação automática, Classificação e Conciliação com Google Sheets (`A4:E1000`):**
   - Ao carregar Itaú e Bradesco, consolida ambos automaticamente removendo rendimentos automáticos, pagamentos de fatura (XP/Nubank) e transferências internas entre as duas contas.
-  - Classifica os lançamentos via Regras do Usuário + Histórico no PostgreSQL e disponibiliza botão **"📋 Copiar TSV (Sheets A4:E)"** pronto para colagem na planilha.
+  - Permite definir uma **data de corte inicial** (ex.: `30/10` para incluir recebimentos de fim de mês na aba de `novembro`), lê o bloco atual `A4:E1000` via backend (`GET /sheets/checking-block`), preserva categorias já validadas (com matching robusto entre formatos desktop/celular), permite editar categorias inline e grava diretamente na aba do mês (`POST /sheets/checking-block`) com confirmação explícita ou via cópia TSV.
 
 ### Módulo de Análise de Parcelas (`pages/installments.py`)
 Analisa as parcelas das faturas dos cartões (XP e Nubank), facilitando o acompanhamento de despesas parceladas:
